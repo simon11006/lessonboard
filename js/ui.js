@@ -193,6 +193,10 @@ function ensureActiveTab() {
   if (!tabsCache.some((t) => t.id === activeTabId)) activeTabId = tabsCache[0].id;
 }
 
+function activeTab() {
+  return tabsCache.find((t) => t.id === activeTabId) || null;
+}
+
 /** 현재 탭에 보일 칼럼들 (탭이 없으면 전부, 미지정 칼럼은 첫 탭에 표시) */
 function visibleColumns() {
   if (!tabsCache.length) return columnsCache;
@@ -206,6 +210,10 @@ function renderAll() {
   ensureActiveTab();
   renderTabs();
   renderBoard();
+  // 웹앱 탭에서는 헤더의 '게시판 추가' 버튼을 숨긴다
+  const at = activeTab();
+  const addColBtn = $("#add-column-btn");
+  if (addColBtn) addColBtn.hidden = !(isTeacher() && (!at || at.type !== "webapp"));
 }
 
 function renderTabs() {
@@ -248,6 +256,14 @@ function renderBoard() {
   const board = boardEl();
   board.innerHTML = "";
 
+  const at = activeTab();
+  if (at && at.type === "webapp") {
+    board.classList.add("board--webapp");
+    renderWebappTab(at);
+    return;
+  }
+  board.classList.remove("board--webapp");
+
   const columns = visibleColumns();
   renderedColumns = columns;
 
@@ -262,6 +278,52 @@ function renderBoard() {
   columns.forEach((column, idx) => {
     board.appendChild(buildColumn(column, idx, columns.length));
   });
+}
+
+/** 웹앱 게시용 탭: 칼럼 없이 카드 갤러리로 직접 렌더 (암묵적 갤러리 칼럼 1개 사용) */
+function renderWebappTab(tab) {
+  const board = boardEl();
+  const col = columnsCache.find((c) => c.tabId === tab.id);
+
+  const toolbar = el("div", { class: "webapp-toolbar" }, [
+    el("button", { class: "btn btn--primary", text: "＋ 글쓰기", on: { click: () => addWebappCard(tab) } }),
+  ]);
+  const gallery = el("div", { class: "webapp-gallery" });
+  board.appendChild(toolbar);
+  board.appendChild(gallery);
+
+  const emptyMsg = () => el("div", { class: "board__empty", text: "아직 올라온 웹앱이 없습니다. ‘＋ 글쓰기’로 첫 작품을 올려보세요." });
+
+  if (!col) {
+    gallery.appendChild(emptyMsg());
+    return;
+  }
+
+  attachColumnDnD(gallery, col);
+  const unsub = subscribeCards(col.id, (cards) => {
+    gallery.innerHTML = "";
+    if (!cards.length) {
+      gallery.appendChild(emptyMsg());
+      return;
+    }
+    cards.forEach((card) => gallery.appendChild(buildCard(col, card)));
+  });
+  cardUnsubs.set(col.id, unsub);
+}
+
+/** 웹앱 탭에 카드 추가 (암묵적 갤러리 칼럼이 없으면 먼저 생성) */
+async function addWebappCard(tab) {
+  let col = columnsCache.find((c) => c.tabId === tab.id);
+  if (!col) {
+    try {
+      const ref = await addColumn(tab.title || "웹앱", "all", "gallery", tab.id);
+      col = { id: ref.id };
+    } catch (e) {
+      showToast("초기화 실패: " + e.message);
+      return;
+    }
+  }
+  openCardForm(col);
 }
 
 function buildColumn(column, index, total) {
@@ -687,10 +749,11 @@ export function openColumnForm() {
     el("option", { attrs: { value: "list" }, text: "목록 (좁은 세로 칼럼)" }),
     el("option", { attrs: { value: "gallery" }, text: "갤러리 (넓은 그리드 · 웹앱/이미지에 적합)" }),
   ]);
-  const tabSelect = tabsCache.length
-    ? el("select", { class: "select" }, tabsCache.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
+  const boardTabs = tabsCache.filter((t) => t.type !== "webapp");
+  const tabSelect = boardTabs.length
+    ? el("select", { class: "select" }, boardTabs.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
     : null;
-  if (tabSelect) tabSelect.value = activeTabId || tabsCache[0].id;
+  if (tabSelect) tabSelect.value = boardTabs.some((t) => t.id === activeTabId) ? activeTabId : boardTabs[0].id;
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
@@ -731,11 +794,12 @@ function openColumnSettings(column) {
   ]);
   layoutSelect.value = column.layout || "list";
 
-  const curTab = column.tabId || (tabsCache[0] ? tabsCache[0].id : null);
-  const tabSelect = tabsCache.length
-    ? el("select", { class: "select" }, tabsCache.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
+  const boardTabs = tabsCache.filter((t) => t.type !== "webapp");
+  const curTab = column.tabId || (boardTabs[0] ? boardTabs[0].id : null);
+  const tabSelect = boardTabs.length
+    ? el("select", { class: "select" }, boardTabs.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
     : null;
-  if (tabSelect) tabSelect.value = curTab;
+  if (tabSelect) tabSelect.value = boardTabs.some((t) => t.id === curTab) ? curTab : boardTabs[0].id;
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
@@ -775,27 +839,40 @@ function confirmDeleteColumn(column) {
 // ---------- 탭 관리 (강사) ----------
 function openTabForm() {
   const titleInput = el("input", { class: "input", attrs: { placeholder: "탭 이름 (예: 강의용 게시판, 연수 실습 웹앱)" } });
+  const typeSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "board" }, text: "일반 게시판용 (여러 게시판을 두는 탭)" }),
+    el("option", { attrs: { value: "webapp" }, text: "웹앱 게시용 (카드 갤러리 · 바로 글쓰기)" }),
+  ]);
+  const hint = el("p", { class: "hint", text: "일반: 탭 안에 게시판(칼럼)을 여러 개 만듭니다. 웹앱: 게시판 없이 카드 갤러리로 바로 작품을 올립니다." });
+  typeSelect.addEventListener("change", () => {
+    hint.textContent = typeSelect.value === "webapp"
+      ? "웹앱: 게시판(칼럼) 없이 카드 갤러리로 동작합니다. 연수생이 바로 ‘＋ 글쓰기’로 웹앱을 올려요."
+      : "일반: 탭 안에 게시판(칼럼)을 여러 개 만들어 교안·프롬프트·Q&A 등을 둡니다.";
+  });
+
   const saveBtn = el("button", { class: "btn btn--primary", text: "추가" });
   saveBtn.addEventListener("click", async () => {
     const title = titleInput.value.trim();
     if (!title) return showToast("탭 이름을 입력하세요");
+    saveBtn.disabled = true;
     try {
-      const ref = await addTab(title);
+      const type = typeSelect.value;
+      const ref = await addTab(title, type);
+      // 웹앱 탭은 카드 갤러리용 칼럼을 자동 생성 → 바로 글쓰기 가능
+      if (type === "webapp") await addColumn(title, "all", "gallery", ref.id);
       activeTabId = ref.id; // 새 탭으로 전환
       showToast("탭을 추가했습니다");
       closeModal();
     } catch (e) {
       showToast("추가 실패: " + e.message);
+      saveBtn.disabled = false;
     }
   });
   openModal([
     modalHeader("탭 추가"),
     el("div", { class: "modal__body" }, [
-      el("div", { class: "field" }, [
-        el("label", { text: "탭 이름" }),
-        titleInput,
-        el("p", { class: "hint", text: "탭 안에 여러 게시판(칼럼)을 둘 수 있어요. 강의용/실습용 등으로 나눠보세요." }),
-      ]),
+      el("div", { class: "field" }, [el("label", { text: "탭 이름" }), titleInput]),
+      el("div", { class: "field" }, [el("label", { text: "탭 종류" }), typeSelect, hint]),
     ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
   ]);
@@ -825,8 +902,19 @@ function openTabRename(tab) {
 }
 
 function confirmDeleteTab(tab) {
-  if (!confirm(`탭 '${tab.title}'을(를) 삭제할까요? 탭 안의 게시판은 삭제되지 않고 첫 번째 탭으로 이동합니다.`)) return;
-  deleteTab(tab.id)
+  const isWeb = tab.type === "webapp";
+  const msg = isWeb
+    ? `탭 '${tab.title}'을(를) 삭제할까요? 이 탭에 올라온 웹앱 카드도 함께 삭제됩니다.`
+    : `탭 '${tab.title}'을(를) 삭제할까요? 탭 안의 게시판은 삭제되지 않고 첫 번째 탭으로 이동합니다.`;
+  if (!confirm(msg)) return;
+  (async () => {
+    if (isWeb) {
+      // 웹앱 탭의 암묵적 칼럼(들)과 카드까지 삭제
+      const cols = columnsCache.filter((c) => c.tabId === tab.id);
+      for (const c of cols) await deleteColumn(c.id);
+    }
+    await deleteTab(tab.id);
+  })()
     .then(() => showToast("탭을 삭제했습니다"))
     .catch((e) => showToast("삭제 실패: " + e.message));
 }

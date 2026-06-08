@@ -26,6 +26,7 @@ export async function ensureDefaultTab() {
   await setDoc(doc(db, "tabs", "default"), {
     title: "강의용 게시판",
     order: 0,
+    type: "board",
     createdAt: serverTimestamp(),
   });
 }
@@ -37,10 +38,10 @@ export function subscribeTabs(cb) {
   });
 }
 
-export async function addTab(title) {
+export async function addTab(title, type = "board") {
   const snap = await getDocs(query(tabsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
-  return addDoc(tabsRef, { title: title.trim(), order: maxOrder + 1, createdAt: serverTimestamp() });
+  return addDoc(tabsRef, { title: title.trim(), order: maxOrder + 1, type, createdAt: serverTimestamp() });
 }
 
 export function renameTab(tabId, title) {
