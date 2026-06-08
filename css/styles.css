@@ -43,6 +43,9 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 속성은 항상 숨김 (.info-banner/.tabbar 등의 display 규칙이 덮어쓰지 않도록) */
+[hidden] { display: none !important; }
+
 html, body { margin: 0; height: 100%; }
 
 body {
