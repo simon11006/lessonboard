@@ -1,6 +1,6 @@
 // 앱 부트스트랩
 import { initAuth } from "./firebase.js";
-import { setUid } from "./auth.js";
+import { setUid, restoreTeacher } from "./auth.js";
 import { initHeader, startBoard, showToast } from "./ui.js";
 
 async function main() {
@@ -9,6 +9,7 @@ async function main() {
     const uid = await initAuth();
     setUid(uid);
     startBoard();
+    restoreTeacher(); // 새로고침해도 강사 모드 유지
   } catch (err) {
     console.error("초기화 실패:", err);
     document.querySelector("#board").innerHTML =
