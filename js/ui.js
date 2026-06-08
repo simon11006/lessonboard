@@ -463,8 +463,21 @@ function openCardForm(column, existing = null) {
   const chosen = el("div", { class: "file-chosen" });
   const pasteZone = el("div", {
     class: "paste-zone",
-    text: "이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 파일(PDF·이미지)을 선택하세요",
-    on: { click: () => fileInput.click() },
+    text: "파일을 여기로 끌어다 놓거나, 이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 선택하세요 (PDF·이미지)",
+    on: {
+      click: () => fileInput.click(),
+      dragover: (e) => {
+        e.preventDefault();
+        pasteZone.classList.add("paste-zone--active");
+      },
+      dragleave: () => pasteZone.classList.remove("paste-zone--active"),
+      drop: (e) => {
+        e.preventDefault();
+        pasteZone.classList.remove("paste-zone--active");
+        const file = e.dataTransfer?.files?.[0];
+        if (file) setFile(file);
+      },
+    },
   });
 
   // 모달이 열려 있는 동안 어디서든 Ctrl+V 로 이미지 붙여넣기 허용
@@ -481,6 +494,12 @@ function openCardForm(column, existing = null) {
   function setFile(file) {
     if (file) {
       const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      const isImage = file.type.startsWith("image/");
+      // 드래그&드롭은 형식 제한을 우회하므로 여기서 직접 검증
+      if (!isPdf && !isImage) {
+        showToast("이미지 또는 PDF만 첨부할 수 있어요");
+        return;
+      }
       // PDF 는 압축 없이 그대로 올라가므로 20MB 제한을 미리 안내. (이미지는 업로드 전 자동 압축)
       if (isPdf && file.size > 20 * 1024 * 1024) {
         showToast("PDF는 20MB까지 첨부할 수 있어요");
