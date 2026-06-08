@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// 바이브코딩 연수 게시판 Storage 보안 규칙
+//  - 읽기: 공개 (카드의 이미지/PDF 표시용)
+//  - 쓰기: 익명 인증 사용자, 10MB 이하, 이미지 또는 PDF 만
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+      allow delete: if request.auth != null;
+    }
+  }
+}

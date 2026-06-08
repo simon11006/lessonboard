@@ -1,0 +1,10 @@
+# Netlify 정적 배포 설정 (빌드 단계 없음)
+[build]
+  publish = "."
+  command = ""
+
+# SPA 라우팅은 사용하지 않지만, 알 수 없는 경로는 index.html 로 보냄
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// 바이브코딩 연수 게시판 Firestore 보안 규칙
+// ---------------------------------------------------------------------------
+// 로그인이 없는(익명 인증) 게시판이라 "소프트" 보호 수준입니다.
+//  - 읽기: 누구나
+//  - 생성: 익명 인증된 사용자, 본인 authorUid 강제
+//  - 수정: 작성 당시 본인(같은 익명 세션)만 → 페이지 이탈 시 권한 소멸
+//  - 삭제: 인증 사용자 허용 (강사의 '모든 글 삭제'를 규칙으로 신원 검증할 수
+//          없어 열어둠. UI에서는 강사 모드에서만 노출됩니다.)
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwnerOnCreate() {
+      return isSignedIn() && request.resource.data.authorUid == request.auth.uid;
+    }
+    function isOwner() {
+      return isSignedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
+    match /columns/{columnId} {
+      // 칼럼은 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트)
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+
+      match /cards/{cardId} {
+        allow read: if true;
+        allow create: if isOwnerOnCreate();
+        // 본인은 자유 수정 / 그 외 사용자는 정렬(order)만 변경 가능 (드래그 정렬)
+        allow update: if isOwner()
+          || (isSignedIn()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order']));
+        allow delete: if isSignedIn();   // 본인 또는 강사(모든 글 삭제)
+
+        match /comments/{commentId} {
+          allow read: if true;
+          allow create: if isOwnerOnCreate();
+          allow update: if isOwner();
+          allow delete: if isSignedIn();
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# 로컬 도구/임시 파일
+.superpowers/
+.claude/
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

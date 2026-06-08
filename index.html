@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>바이브코딩 연수 게시판</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header__title">
+      <span class="app-header__logo">🎓</span>
+      <h1>바이브코딩 연수 게시판</h1>
+    </div>
+    <div class="app-header__actions">
+      <span id="teacher-badge" class="badge badge--teacher" hidden>강사 모드</span>
+      <button id="add-column-btn" class="btn btn--primary" hidden>＋ 게시판 추가</button>
+      <button id="export-btn" class="btn btn--ghost" hidden>백업 내보내기</button>
+      <button id="teacher-mode-btn" class="btn btn--ghost">강사 모드</button>
+    </div>
+  </header>
+
+  <div id="info-banner" class="info-banner" hidden>
+    <span>👋 이름만 입력하면 누구나 글을 올릴 수 있어요. 내가 쓴 글은 <b>이 페이지를 벗어나기 전까지만</b> 수정·삭제할 수 있습니다(새로고침하면 권한이 사라져요).</span>
+    <button id="info-banner-close" class="icon-btn" title="닫기">✕</button>
+  </div>
+
+  <main id="board" class="board">
+    <div class="board__loading">불러오는 중…</div>
+  </main>
+
+  <!-- 모달 루트 -->
+  <div id="modal-root"></div>
+
+  <!-- 토스트 -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
