@@ -18,13 +18,13 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebas
 import { getStorage } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB9YCt0xKHhjyA4y_7WOf_2Vqr4FE-IYLU",
-  authDomain: "vibecodingstudy-494a4.firebaseapp.com",
-  projectId: "vibecodingstudy-494a4",
-  storageBucket: "vibecodingstudy-494a4.firebasestorage.app",
-  messagingSenderId: "1071015470945",
-  appId: "1:1071015470945:web:5629ae873b25d2f598c720",
-  measurementId: "G-ZWP4843RHD",
+  apiKey: "AIzaSyDIeT0Gio3qeARQxs6NRIfThmJt-EfB-1w",
+  authDomain: "lessonboard-74832.firebaseapp.com",
+  projectId: "lessonboard-74832",
+  storageBucket: "lessonboard-74832.firebasestorage.app",
+  messagingSenderId: "506643771460",
+  appId: "1:506643771460:web:9f6cb114e3a9d4cb018c11",
+  measurementId: "G-F24X8GJEL4",
 };
 
 const app = initializeApp(firebaseConfig);
