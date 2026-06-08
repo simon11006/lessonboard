@@ -29,6 +29,12 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
+    // 탭(상위 묶음). 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트).
+    match /tabs/{tabId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
     match /columns/{columnId} {
       // 칼럼은 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트)
       allow read: if true;

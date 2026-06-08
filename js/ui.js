@@ -5,9 +5,11 @@ import {
   renameColumn,
   setColumnPermission,
   setColumnLayout,
+  setColumnTab,
   swapColumnOrder,
   deleteColumn,
 } from "./columns.js";
+import { subscribeTabs, addTab, renameTab, swapTabOrder, deleteTab } from "./tabs.js";
 import { subscribeCards, addCard, updateCard, deleteCard, reorderCards } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
@@ -170,14 +172,75 @@ function attachColumnDnD(body, column) {
   });
 }
 
+let tabsCache = [];
+let activeTabId = null;
+let renderedColumns = [];
+
 export function startBoard() {
+  subscribeTabs((tabs) => {
+    tabsCache = tabs;
+    ensureActiveTab();
+    renderAll();
+  });
   subscribeColumns((columns) => {
     columnsCache = columns;
-    renderBoard(columns);
+    renderAll();
   });
 }
 
-function renderBoard(columns) {
+function ensureActiveTab() {
+  if (!tabsCache.length) { activeTabId = null; return; }
+  if (!tabsCache.some((t) => t.id === activeTabId)) activeTabId = tabsCache[0].id;
+}
+
+/** 현재 탭에 보일 칼럼들 (탭이 없으면 전부, 미지정 칼럼은 첫 탭에 표시) */
+function visibleColumns() {
+  if (!tabsCache.length) return columnsCache;
+  const firstTabId = tabsCache[0].id;
+  return columnsCache.filter(
+    (c) => c.tabId === activeTabId || (!c.tabId && activeTabId === firstTabId)
+  );
+}
+
+function renderAll() {
+  ensureActiveTab();
+  renderTabs();
+  renderBoard();
+}
+
+function renderTabs() {
+  const bar = $("#tabbar");
+  const teacher = isTeacher();
+  bar.innerHTML = "";
+  if (!tabsCache.length && !teacher) { bar.hidden = true; return; }
+  bar.hidden = false;
+
+  tabsCache.forEach((tab, idx) => {
+    const active = tab.id === activeTabId;
+    const group = el("div", { class: "tab-group" }, [
+      el("button", {
+        class: "tab" + (active ? " tab--active" : ""),
+        text: tab.title,
+        on: { click: () => { activeTabId = tab.id; renderAll(); } },
+      }),
+    ]);
+    if (teacher && active) {
+      const tools = [];
+      if (idx > 0) tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapTabOrder(tab, tabsCache[idx - 1]) } }));
+      if (idx < tabsCache.length - 1) tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapTabOrder(tab, tabsCache[idx + 1]) } }));
+      tools.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "탭 이름 변경" }, on: { click: () => openTabRename(tab) } }));
+      tools.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "탭 삭제" }, on: { click: () => confirmDeleteTab(tab) } }));
+      group.appendChild(el("span", { class: "tab-tools" }, tools));
+    }
+    bar.appendChild(group);
+  });
+
+  if (teacher) {
+    bar.appendChild(el("button", { class: "tab-add", text: "＋ 탭", on: { click: openTabForm } }));
+  }
+}
+
+function renderBoard() {
   // 기존 카드 구독 해제
   cardUnsubs.forEach((u) => u());
   cardUnsubs.clear();
@@ -185,9 +248,12 @@ function renderBoard(columns) {
   const board = boardEl();
   board.innerHTML = "";
 
+  const columns = visibleColumns();
+  renderedColumns = columns;
+
   if (!columns.length) {
     const msg = isTeacher()
-      ? "‘＋ 게시판 추가’로 첫 게시판을 만들어 보세요."
+      ? "‘＋ 게시판 추가’로 게시판을 만들어 보세요."
       : "아직 게시판이 없습니다. 강사가 곧 게시판을 만들 거예요.";
     board.appendChild(el("div", { class: "board__empty", text: msg }));
     return;
@@ -206,9 +272,9 @@ function buildColumn(column, index, total) {
   const tools = [];
   if (teacher) {
     if (index > 0)
-      tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapColumnOrder(column, columnsCache[index - 1]) } }));
+      tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index - 1]) } }));
     if (index < total - 1)
-      tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapColumnOrder(column, columnsCache[index + 1]) } }));
+      tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index + 1]) } }));
     tools.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "설정" }, on: { click: () => openColumnSettings(column) } }));
     tools.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: () => confirmDeleteColumn(column) } }));
   }
@@ -393,7 +459,7 @@ function openCardDetail(column, card) {
   commentsWrap.appendChild(list);
 
   // 댓글 입력
-  const nameInput = el("input", { class: "input", attrs: { placeholder: "이름", value: lastName } });
+  const nameInput = el("input", { class: "input comment-name", attrs: { placeholder: "이름", value: lastName } });
   const bodyInput = el("input", { class: "input", attrs: { placeholder: "댓글을 입력하세요" } });
   const submit = el("button", { class: "btn btn--primary", text: "등록" });
   const send = async () => {
@@ -621,8 +687,14 @@ export function openColumnForm() {
     el("option", { attrs: { value: "list" }, text: "목록 (좁은 세로 칼럼)" }),
     el("option", { attrs: { value: "gallery" }, text: "갤러리 (넓은 그리드 · 웹앱/이미지에 적합)" }),
   ]);
+  const tabSelect = tabsCache.length
+    ? el("select", { class: "select" }, tabsCache.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
+    : null;
+  if (tabSelect) tabSelect.value = activeTabId || tabsCache[0].id;
+
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
+    tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
   ]);
@@ -631,7 +703,7 @@ export function openColumnForm() {
     const title = titleInput.value.trim();
     if (!title) return showToast("게시판 이름을 입력하세요");
     try {
-      await addColumn(title, permSelect.value, layoutSelect.value);
+      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null);
       showToast("게시판을 추가했습니다");
       closeModal();
     } catch (e) {
@@ -658,8 +730,16 @@ function openColumnSettings(column) {
     el("option", { attrs: { value: "gallery" }, text: "갤러리 (넓은 그리드 · 웹앱/이미지에 적합)" }),
   ]);
   layoutSelect.value = column.layout || "list";
+
+  const curTab = column.tabId || (tabsCache[0] ? tabsCache[0].id : null);
+  const tabSelect = tabsCache.length
+    ? el("select", { class: "select" }, tabsCache.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
+    : null;
+  if (tabSelect) tabSelect.value = curTab;
+
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
+    tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
   ]);
@@ -671,6 +751,7 @@ function openColumnSettings(column) {
       if (title !== column.title) await renameColumn(column.id, title);
       if (permSelect.value !== (column.writePermission || "all")) await setColumnPermission(column.id, permSelect.value);
       if (layoutSelect.value !== (column.layout || "list")) await setColumnLayout(column.id, layoutSelect.value);
+      if (tabSelect && tabSelect.value !== curTab) await setColumnTab(column.id, tabSelect.value);
       showToast("저장했습니다");
       closeModal();
     } catch (e) {
@@ -688,6 +769,65 @@ function confirmDeleteColumn(column) {
   if (!confirm(`게시판 '${column.title}'을(를) 삭제할까요? 안의 모든 글과 댓글이 함께 삭제됩니다.`)) return;
   deleteColumn(column.id)
     .then(() => showToast("게시판을 삭제했습니다"))
+    .catch((e) => showToast("삭제 실패: " + e.message));
+}
+
+// ---------- 탭 관리 (강사) ----------
+function openTabForm() {
+  const titleInput = el("input", { class: "input", attrs: { placeholder: "탭 이름 (예: 강의용 게시판, 연수 실습 웹앱)" } });
+  const saveBtn = el("button", { class: "btn btn--primary", text: "추가" });
+  saveBtn.addEventListener("click", async () => {
+    const title = titleInput.value.trim();
+    if (!title) return showToast("탭 이름을 입력하세요");
+    try {
+      const ref = await addTab(title);
+      activeTabId = ref.id; // 새 탭으로 전환
+      showToast("탭을 추가했습니다");
+      closeModal();
+    } catch (e) {
+      showToast("추가 실패: " + e.message);
+    }
+  });
+  openModal([
+    modalHeader("탭 추가"),
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [
+        el("label", { text: "탭 이름" }),
+        titleInput,
+        el("p", { class: "hint", text: "탭 안에 여러 게시판(칼럼)을 둘 수 있어요. 강의용/실습용 등으로 나눠보세요." }),
+      ]),
+    ]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
+  ]);
+  titleInput.focus();
+}
+
+function openTabRename(tab) {
+  const titleInput = el("input", { class: "input", attrs: { value: tab.title } });
+  const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
+  saveBtn.addEventListener("click", async () => {
+    const title = titleInput.value.trim();
+    if (!title) return showToast("이름을 입력하세요");
+    try {
+      await renameTab(tab.id, title);
+      showToast("저장했습니다");
+      closeModal();
+    } catch (e) {
+      showToast("저장 실패: " + e.message);
+    }
+  });
+  openModal([
+    modalHeader("탭 이름 변경"),
+    el("div", { class: "modal__body" }, [el("div", { class: "field" }, [el("label", { text: "탭 이름" }), titleInput])]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
+  ]);
+  titleInput.focus();
+}
+
+function confirmDeleteTab(tab) {
+  if (!confirm(`탭 '${tab.title}'을(를) 삭제할까요? 탭 안의 게시판은 삭제되지 않고 첫 번째 탭으로 이동합니다.`)) return;
+  deleteTab(tab.id)
+    .then(() => showToast("탭을 삭제했습니다"))
     .catch((e) => showToast("삭제 실패: " + e.message));
 }
 
@@ -835,6 +975,6 @@ export function initHeader() {
     exportBtn.hidden = !on;
     changePwBtn.hidden = !on;
     modeBtn.textContent = on ? "강사 모드 종료" : "강사 모드";
-    renderBoard(columnsCache); // 권한에 따른 버튼 재노출
+    renderAll(); // 권한에 따른 탭/버튼 재노출
   });
 }

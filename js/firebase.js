@@ -10,7 +10,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import {
   getAuth,
   setPersistence,
-  inMemoryPersistence,
+  browserSessionPersistence,
   signInAnonymously,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
@@ -35,13 +35,14 @@ export const auth = getAuth(app);
 
 /**
  * 익명 인증을 시작한다.
- * 세션 지속성을 inMemory 로 두어, 페이지를 새로고침/이탈하면 새로운 uid 가
- * 발급된다. → "페이지를 벗어나기 전까지만 본인 글 수정/삭제 가능" 동작의 핵심.
+ * 세션 지속성을 browserSession 으로 두어, 같은 브라우저 탭/창 안에서는
+ * 새로고침해도 동일한 uid 가 유지되고, 창(탭)을 닫으면 사라진다.
+ * → "창을 닫기 전까지 본인 글 수정/삭제 가능" 동작의 핵심.
  * @returns {Promise<string>} 익명 사용자 uid
  */
 export function initAuth() {
   return new Promise((resolve, reject) => {
-    setPersistence(auth, inMemoryPersistence)
+    setPersistence(auth, browserSessionPersistence)
       .then(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
           if (user) {
