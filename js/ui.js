@@ -11,7 +11,7 @@ import {
   deleteColumn,
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock } from "./cards.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock, setCardHidden } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -303,7 +303,8 @@ function renderWebappTab(tab) {
   }
 
   attachColumnDnD(gallery, col);
-  const unsub = subscribeCards(col.id, (cards) => {
+  const unsub = subscribeCards(col.id, (allCards) => {
+    const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
     gallery.innerHTML = "";
     if (!cards.length) {
       gallery.appendChild(emptyMsg());
@@ -367,7 +368,8 @@ function buildColumn(column, index, total) {
   const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : "") }, [header, body, addBtn]);
 
   // 카드 실시간 구독
-  const unsub = subscribeCards(column.id, (cards) => {
+  const unsub = subscribeCards(column.id, (allCards) => {
+    const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
     countEl.textContent = cards.length ? `${cards.length}` : "";
     body.innerHTML = "";
     if (!cards.length) {
@@ -384,6 +386,7 @@ function buildCard(column, card, cards = [], index = 0) {
   const children = [];
   const isLocked = !!card.lockHash;
 
+  if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 수강생에게 숨김" }));
   if (card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
   if (card.title || isLocked) {
     children.push(el("h3", { class: "card__title" }, [
@@ -434,8 +437,10 @@ function buildCard(column, card, cards = [], index = 0) {
     if (index < cards.length - 1)
       actions.push(el("button", { class: "icon-btn", text: "▼", attrs: { title: "아래로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index + 1]); } } }));
   }
-  // 강사: 글 비밀번호 잠금/해제
+  // 강사: 숨김 토글 + 비밀번호 잠금
   if (isTeacher()) {
+    const hiddenNow = !!card.hidden;
+    actions.push(el("button", { class: "icon-btn", text: hiddenNow ? "🙈" : "👁", attrs: { title: hiddenNow ? "수강생에게 숨김 — 눌러서 다시 보이기" : "수강생에게 숨기기" }, on: { click: (e) => { e.stopPropagation(); setCardHidden(column.id, card.id, !hiddenNow).then(() => showToast(hiddenNow ? "다시 보입니다" : "수강생에게 숨겼습니다")).catch((err) => showToast("실패: " + err.message)); } } }));
     const lockedNow = !!card.lockHash;
     actions.push(el("button", { class: "icon-btn", text: lockedNow ? "🔒" : "🔓", attrs: { title: lockedNow ? "비밀번호 잠금됨 (변경/해제)" : "비밀번호 잠금" }, on: { click: (e) => { e.stopPropagation(); openCardLock(column, card); } } }));
   }
@@ -454,7 +459,7 @@ function buildCard(column, card, cards = [], index = 0) {
   children.push(footer);
 
   const cardEl = el("div", {
-    class: "card",
+    class: "card" + (card.hidden ? " card--hidden" : ""),
     attrs: { draggable: "true", "data-card-id": card.id },
     on: {
       click: () => openCardDetail(column, card),

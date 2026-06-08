@@ -43,11 +43,11 @@ service cloud.firestore {
       match /cards/{cardId} {
         allow read: if true;
         allow create: if isOwnerOnCreate();
-        // 본인은 자유 수정 / 그 외 사용자는 정렬(order)·잠금(lockHash)만 변경 가능
-        // (order: 드래그·▲▼ 정렬, lockHash: 강사의 글 비밀번호 잠금)
+        // 본인은 자유 수정 / 그 외 사용자는 정렬(order)·잠금(lockHash)·숨김(hidden)만 변경 가능
+        // (order: 드래그·▲▼ 정렬, lockHash: 비밀번호 잠금, hidden: 강사 숨김)
         allow update: if isOwner()
           || (isSignedIn()
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order', 'lockHash']));
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order', 'lockHash', 'hidden']));
         allow delete: if isSignedIn();   // 본인 또는 강사(모든 글 삭제)
 
         match /comments/{commentId} {

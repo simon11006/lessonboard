@@ -358,6 +358,13 @@ body {
 
 .card__lock-icon { font-size: 12px; margin-left: 6px; opacity: 0.75; vertical-align: middle; }
 
+.card--hidden { opacity: 0.62; background: repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--surface-2) 10px 20px); }
+.card__hidden-badge {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 3px 9px; border-radius: 5px; margin-bottom: 8px;
+  background: #ece7dd; color: var(--ink-soft); letter-spacing: 0.02em;
+}
+
 .card__footer {
   display: flex; align-items: center; gap: 8px;
   margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line);

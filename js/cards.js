@@ -124,6 +124,11 @@ export function setCardLock(columnId, cardId, lockHash) {
   return updateDoc(doc(db, "columns", columnId, "cards", cardId), { lockHash });
 }
 
+/** 글 숨김 설정/해제 (hidden 만 변경) — 강사용 */
+export function setCardHidden(columnId, cardId, hidden) {
+  return updateDoc(doc(db, "columns", columnId, "cards", cardId), { hidden });
+}
+
 /** 두 카드의 order 를 맞바꿔 위/아래로 이동 (강사 위치 수정용) */
 export function swapCardOrder(columnId, cardA, cardB) {
   const batch = writeBatch(db);
