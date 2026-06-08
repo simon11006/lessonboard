@@ -119,6 +119,11 @@ export function reorderCards(columnId, orderedIds) {
   return batch.commit();
 }
 
+/** 글 비밀번호 잠금 설정/해제 (lockHash 만 변경) */
+export function setCardLock(columnId, cardId, lockHash) {
+  return updateDoc(doc(db, "columns", columnId, "cards", cardId), { lockHash });
+}
+
 /** 두 카드의 order 를 맞바꿔 위/아래로 이동 (강사 위치 수정용) */
 export function swapCardOrder(columnId, cardA, cardB) {
   const batch = writeBatch(db);

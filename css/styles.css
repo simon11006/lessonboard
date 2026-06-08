@@ -356,6 +356,13 @@ body {
 
 .card__prompt-copy { margin-top: 11px; }
 
+.card__lock {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 9px; padding: 14px 12px;
+  background: var(--surface-2); border: 1px dashed var(--line-strong);
+  border-radius: 9px; color: var(--ink-soft); font-size: 12.5px; font-weight: 500;
+}
+
 .card__footer {
   display: flex; align-items: center; gap: 8px;
   margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line);

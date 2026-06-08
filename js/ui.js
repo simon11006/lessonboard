@@ -11,7 +11,7 @@ import {
   deleteColumn,
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder } from "./cards.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -22,7 +22,7 @@ import {
   exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
-import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword } from "./config.js";
+import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, sha256 } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -382,41 +382,45 @@ function buildColumn(column, index, total) {
 
 function buildCard(column, card, cards = [], index = 0) {
   const children = [];
+  const locked = !!card.lockHash && !isTeacher() && !unlockedCards.has(card.id);
 
-  if (card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
+  if (!locked && card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
   if (card.title) children.push(el("h3", { class: "card__title", text: card.title }));
 
-  if (card.body)
-    children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
+  if (locked) {
+    children.push(el("div", { class: "card__lock", text: "🔒 비밀번호가 필요한 글입니다. 눌러서 입력하세요." }));
+  } else {
+    if (card.body) children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
 
-  if (card.fileType === "image" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
-    );
-  } else if (card.fileType === "pdf" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__file" }, [
-        el("span", { class: "card__file-icon", text: "📄" }),
-        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-      ])
-    );
-  }
+    if (card.fileType === "image" && card.fileUrl) {
+      children.push(
+        el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
+      );
+    } else if (card.fileType === "pdf" && card.fileUrl) {
+      children.push(
+        el("div", { class: "card__file" }, [
+          el("span", { class: "card__file-icon", text: "📄" }),
+          el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
+        ])
+      );
+    }
 
-  if (card.linkUrl) children.push(buildLinkPreview(card));
+    if (card.linkUrl) children.push(buildLinkPreview(card));
 
-  if (card.isPrompt && card.body) {
-    children.push(
-      el("button", {
-        class: "btn btn--ghost btn--sm card__prompt-copy",
-        text: "📋 복사",
-        on: {
-          click: (e) => {
-            e.stopPropagation();
-            copyText(card.body);
+    if (card.isPrompt && card.body) {
+      children.push(
+        el("button", {
+          class: "btn btn--ghost btn--sm card__prompt-copy",
+          text: "📋 복사",
+          on: {
+            click: (e) => {
+              e.stopPropagation();
+              copyText(card.body);
+            },
           },
-        },
-      })
-    );
+        })
+      );
+    }
   }
 
   // footer
@@ -427,6 +431,11 @@ function buildCard(column, card, cards = [], index = 0) {
       actions.push(el("button", { class: "icon-btn", text: "▲", attrs: { title: "위로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index - 1]); } } }));
     if (index < cards.length - 1)
       actions.push(el("button", { class: "icon-btn", text: "▼", attrs: { title: "아래로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index + 1]); } } }));
+  }
+  // 강사: 글 비밀번호 잠금/해제
+  if (isTeacher()) {
+    const lockedNow = !!card.lockHash;
+    actions.push(el("button", { class: "icon-btn", text: lockedNow ? "🔒" : "🔓", attrs: { title: lockedNow ? "비밀번호 잠금됨 (변경/해제)" : "비밀번호 잠금" }, on: { click: (e) => { e.stopPropagation(); openCardLock(column, card); } } }));
   }
   if (canManage(card.authorUid)) {
     actions.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "수정" }, on: { click: (e) => { e.stopPropagation(); openCardForm(column, card); } } }));
@@ -485,7 +494,98 @@ function buildLinkPreview(card) {
 }
 
 // ---------- 카드 상세 + 댓글 ----------
+// 이번 세션에서 비밀번호를 풀어 열람 허용된 카드 id
+const unlockedCards = new Set();
+
+// 잠긴 글 열기 — 비밀번호 입력
+function openCardUnlock(column, card) {
+  const pw = el("input", { class: "input", attrs: { type: "password", placeholder: "비밀번호" } });
+  const okBtn = el("button", { class: "btn btn--primary", text: "열기" });
+  const tryOpen = async () => {
+    okBtn.disabled = true;
+    try {
+      if ((await sha256(pw.value)) === card.lockHash) {
+        unlockedCards.add(card.id);
+        closeModal();
+        renderAll(); // 미리보기 가림 해제
+        openCardDetail(column, card);
+      } else {
+        showToast("비밀번호가 올바르지 않습니다");
+        pw.value = "";
+        pw.focus();
+        okBtn.disabled = false;
+      }
+    } catch (e) {
+      showToast("확인 실패: " + e.message);
+      okBtn.disabled = false;
+    }
+  };
+  okBtn.addEventListener("click", tryOpen);
+  pw.addEventListener("keydown", (e) => { if (e.key === "Enter") tryOpen(); });
+  openModal([
+    modalHeader("🔒 비밀번호 입력"),
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [el("label", { text: "이 글은 비밀번호로 보호되어 있습니다" }), pw]),
+    ]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), okBtn]),
+  ]);
+  pw.focus();
+}
+
+// 강사: 글 비밀번호 설정/변경/해제
+function openCardLock(column, card) {
+  const locked = !!card.lockHash;
+  const pw = el("input", { class: "input", attrs: { type: "password", placeholder: locked ? "새 비밀번호 (변경 시 입력)" : "비밀번호" } });
+  const setBtn = el("button", { class: "btn btn--primary", text: locked ? "변경" : "잠금" });
+  setBtn.addEventListener("click", async () => {
+    const v = pw.value.trim();
+    if (v.length < 2) return showToast("비밀번호를 입력하세요");
+    setBtn.disabled = true;
+    try {
+      await setCardLock(column.id, card.id, await sha256(v));
+      unlockedCards.delete(card.id);
+      showToast(locked ? "비밀번호를 변경했습니다" : "글을 잠갔습니다");
+      closeModal();
+    } catch (e) {
+      showToast("저장 실패: " + e.message);
+      setBtn.disabled = false;
+    }
+  });
+  const footer = [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } })];
+  if (locked) {
+    footer.push(el("button", {
+      class: "btn btn--danger", text: "잠금 해제",
+      on: { click: async () => {
+        try {
+          await setCardLock(column.id, card.id, null);
+          unlockedCards.delete(card.id);
+          showToast("잠금을 해제했습니다");
+          closeModal();
+        } catch (e) { showToast("실패: " + e.message); }
+      } },
+    }));
+  }
+  footer.push(setBtn);
+  openModal([
+    modalHeader(locked ? "🔒 글 잠금 설정" : "🔒 글 잠그기"),
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [
+        el("label", { text: "비밀번호" }), pw,
+        el("p", { class: "hint", text: locked ? "잠긴 글입니다. 새 비밀번호로 변경하거나 잠금을 해제할 수 있어요." : "비밀번호를 걸면 연수생은 비밀번호를 입력해야 글을 볼 수 있어요. (강사는 바로 열람)" }),
+      ]),
+    ]),
+    el("div", { class: "modal__footer" }, footer),
+  ]);
+  pw.focus();
+}
+
 function openCardDetail(column, card) {
+  // 잠긴 글은 비밀번호 입력 후 열람 (강사·이미 연 글은 통과)
+  if (card.lockHash && !isTeacher() && !unlockedCards.has(card.id)) {
+    openCardUnlock(column, card);
+    return;
+  }
+
   const body = el("div", { class: "modal__body detail" });
 
   body.appendChild(
