@@ -1,10 +1,9 @@
 // 세션(익명 uid)과 강사 모드 상태 관리
 // ---------------------------------------------------------------------------
-// ⚠️ 강사 암호를 아래에서 변경하세요. 로그인이 없는 구조라 이 암호는 "소프트"
-//    보호(연수 현장에서 실수 방지) 수준입니다. README.md 의 보안 안내 참고.
+// 강사 비밀번호는 Firestore(config/teacher)에 해시로 저장됩니다(js/config.js).
+// 이 모듈은 "현재 강사 모드인가"라는 메모리 상태만 다룹니다.
+// 로그인이 없는 구조라 보호는 "소프트"(연수 현장 실수 방지) 수준입니다.
 // ---------------------------------------------------------------------------
-
-const TEACHER_PASSWORD = "vibe2026";
 
 let currentUid = null;
 let teacherMode = false;
@@ -32,22 +31,14 @@ export function canManage(authorUid) {
   return isMine(authorUid) || teacherMode;
 }
 
-/**
- * 강사 암호를 검증해 강사 모드를 켠다.
- * @returns {boolean} 성공 여부
- */
-export function enterTeacherMode(password) {
-  if (password === TEACHER_PASSWORD) {
-    teacherMode = true;
-    notify();
-    return true;
-  }
-  return false;
+/** 강사 모드 on/off (비밀번호 검증은 js/config.js + ui.js 에서 처리) */
+export function setTeacher(on) {
+  teacherMode = !!on;
+  notify();
 }
 
 export function exitTeacherMode() {
-  teacherMode = false;
-  notify();
+  setTeacher(false);
 }
 
 /** 강사 모드 변경 구독 (UI 갱신용) */

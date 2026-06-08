@@ -23,6 +23,12 @@ service cloud.firestore {
       return isSignedIn() && resource.data.authorUid == request.auth.uid;
     }
 
+    // 강사 비밀번호(해시) 등 설정값. 해시만 저장하므로 읽기 공개해도 안전.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
     match /columns/{columnId} {
       // 칼럼은 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트)
       allow read: if true;

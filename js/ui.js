@@ -14,10 +14,11 @@ import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
 import {
   isTeacher,
   canManage,
-  enterTeacherMode,
+  setTeacher,
   exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
+import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -650,30 +651,97 @@ function confirmDeleteColumn(column) {
 }
 
 // ---------- 강사 모드 토글 ----------
-function openTeacherLogin() {
-  const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "강사 암호" } });
-  const body = el("div", { class: "modal__body" }, [
-    el("div", { class: "field" }, [el("label", { text: "강사 암호" }), pwInput, el("p", { class: "hint", text: "암호를 입력하면 게시판 관리와 모든 글 삭제가 가능해집니다." })]),
-  ]);
+async function openTeacherLogin() {
+  let hasPassword;
+  try {
+    hasPassword = await isTeacherPasswordSet();
+  } catch (e) {
+    showToast("비밀번호 확인 실패: " + e.message);
+    return;
+  }
+
+  // 최초 1회: 비밀번호 없이 입장 → 곧바로 비밀번호 설정 요구
+  if (!hasPassword) {
+    setTeacher(true);
+    showToast("강사 모드로 입장했습니다. 비밀번호를 설정해주세요.");
+    openSetPasswordModal({ firstTime: true });
+    return;
+  }
+
+  // 이후: 비밀번호 입력
+  const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "강사 비밀번호" } });
   const okBtn = el("button", { class: "btn btn--primary", text: "확인" });
-  const tryLogin = () => {
-    if (enterTeacherMode(pwInput.value)) {
-      showToast("강사 모드로 전환했습니다");
-      closeModal();
-    } else {
-      showToast("암호가 올바르지 않습니다");
-      pwInput.value = "";
-      pwInput.focus();
+  const tryLogin = async () => {
+    okBtn.disabled = true;
+    try {
+      if (await verifyTeacherPassword(pwInput.value)) {
+        setTeacher(true);
+        showToast("강사 모드로 전환했습니다");
+        closeModal();
+      } else {
+        showToast("비밀번호가 올바르지 않습니다");
+        pwInput.value = "";
+        pwInput.focus();
+      }
+    } catch (e) {
+      showToast("확인 실패: " + e.message);
+    } finally {
+      okBtn.disabled = false;
     }
   };
   okBtn.addEventListener("click", tryLogin);
   pwInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
   openModal([
     modalHeader("강사 모드"),
-    body,
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [el("label", { text: "강사 비밀번호" }), pwInput, el("p", { class: "hint", text: "비밀번호를 입력하면 게시판 관리와 모든 글 삭제가 가능해집니다." })]),
+    ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), okBtn]),
   ]);
   pwInput.focus();
+}
+
+// 비밀번호 설정/변경 모달
+function openSetPasswordModal({ firstTime = false } = {}) {
+  const pw1 = el("input", { class: "input", attrs: { type: "password", placeholder: "새 비밀번호" } });
+  const pw2 = el("input", { class: "input", attrs: { type: "password", placeholder: "새 비밀번호 확인" } });
+  const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
+
+  const save = async () => {
+    const a = pw1.value.trim();
+    const b = pw2.value.trim();
+    if (a.length < 4) return showToast("비밀번호는 4자 이상으로 정해주세요");
+    if (a !== b) return showToast("두 비밀번호가 일치하지 않습니다");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "저장 중…";
+    try {
+      await setTeacherPassword(a);
+      showToast("비밀번호를 저장했습니다");
+      closeModal();
+    } catch (e) {
+      showToast("저장 실패: " + e.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = "저장";
+    }
+  };
+  saveBtn.addEventListener("click", save);
+  pw2.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+
+  const footer = [saveBtn];
+  if (!firstTime) footer.unshift(el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }));
+
+  openModal([
+    modalHeader(firstTime ? "강사 비밀번호 설정" : "강사 비밀번호 변경"),
+    el("div", { class: "modal__body" }, [
+      firstTime
+        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호는 다음부터 강사 모드 입장에 사용됩니다. Firestore에 안전하게(해시) 저장돼요." })
+        : null,
+      el("div", { class: "field" }, [el("label", { text: "새 비밀번호" }), pw1]),
+      el("div", { class: "field" }, [el("label", { text: "비밀번호 확인" }), pw2]),
+    ]),
+    el("div", { class: "modal__footer" }, footer),
+  ]);
+  pw1.focus();
 }
 
 // ---------- 헤더 배선 ----------
@@ -681,7 +749,10 @@ export function initHeader() {
   const modeBtn = $("#teacher-mode-btn");
   const addColBtn = $("#add-column-btn");
   const exportBtn = $("#export-btn");
+  const changePwBtn = $("#change-pw-btn");
   const badge = $("#teacher-badge");
+
+  changePwBtn.addEventListener("click", () => openSetPasswordModal({ firstTime: false }));
 
   // 안내 배너 (한 번 닫으면 기억)
   const banner = $("#info-banner");
@@ -721,6 +792,7 @@ export function initHeader() {
     badge.hidden = !on;
     addColBtn.hidden = !on;
     exportBtn.hidden = !on;
+    changePwBtn.hidden = !on;
     modeBtn.textContent = on ? "강사 모드 종료" : "강사 모드";
     renderBoard(columnsCache); // 권한에 따른 버튼 재노출
   });
