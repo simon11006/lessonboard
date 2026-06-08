@@ -561,11 +561,11 @@ function openCardForm(column, existing = null) {
     saveBtn.disabled = true;
     saveBtn.textContent = "저장 중…";
     try {
-      // 링크 미리보기
+      // 링크 미리보기 (링크가 바뀌었거나, 기존 미리보기에 썸네일이 없으면 다시 생성)
       let linkPreview = isEdit ? existing.linkPreview : null;
       const linkVal = linkInput.value.trim();
       const prevLink = isEdit ? existing.linkUrl || "" : "";
-      if (linkVal && linkVal !== prevLink) {
+      if (linkVal && (linkVal !== prevLink || !linkPreview || !linkPreview.image)) {
         linkPreview = await fetchLinkPreview(linkVal);
       } else if (!linkVal) {
         linkPreview = null;

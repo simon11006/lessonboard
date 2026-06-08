@@ -15,7 +15,9 @@ export async function fetchLinkPreview(url) {
   if (cache.has(normalized)) return cache.get(normalized);
 
   try {
-    const api = `https://api.microlink.io/?url=${encodeURIComponent(normalized)}`;
+    // screenshot=true → OG 대표이미지가 없는 사이트(연수생 제작 웹앱 등)도
+    // 실제 화면 스크린샷을 썸네일로 받아온다.
+    const api = `https://api.microlink.io/?url=${encodeURIComponent(normalized)}&screenshot=true&meta=true`;
     const res = await fetch(api);
     if (!res.ok) throw new Error(`microlink ${res.status}`);
     const json = await res.json();
@@ -25,7 +27,7 @@ export async function fetchLinkPreview(url) {
     const preview = {
       title: d.title || normalized,
       description: d.description || "",
-      image: d.image?.url || d.logo?.url || "",
+      image: d.image?.url || d.screenshot?.url || d.logo?.url || "",
     };
     cache.set(normalized, preview);
     return preview;
