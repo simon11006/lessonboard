@@ -382,45 +382,47 @@ function buildColumn(column, index, total) {
 
 function buildCard(column, card, cards = [], index = 0) {
   const children = [];
-  const locked = !!card.lockHash && !isTeacher() && !unlockedCards.has(card.id);
+  const isLocked = !!card.lockHash;
 
-  if (!locked && card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
-  if (card.title) children.push(el("h3", { class: "card__title", text: card.title }));
+  if (card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
+  if (card.title || isLocked) {
+    children.push(el("h3", { class: "card__title" }, [
+      card.title || "",
+      isLocked ? el("span", { class: "card__lock-icon", text: "🔒", attrs: { title: "비밀번호 잠금" } }) : null,
+    ]));
+  }
 
-  if (locked) {
-    children.push(el("div", { class: "card__lock", text: "🔒 비밀번호가 필요한 글입니다. 눌러서 입력하세요." }));
-  } else {
-    if (card.body) children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
+  if (card.body)
+    children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
 
-    if (card.fileType === "image" && card.fileUrl) {
-      children.push(
-        el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
-      );
-    } else if (card.fileType === "pdf" && card.fileUrl) {
-      children.push(
-        el("div", { class: "card__file" }, [
-          el("span", { class: "card__file-icon", text: "📄" }),
-          el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-        ])
-      );
-    }
+  if (card.fileType === "image" && card.fileUrl) {
+    children.push(
+      el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
+    );
+  } else if (card.fileType === "pdf" && card.fileUrl) {
+    children.push(
+      el("div", { class: "card__file" }, [
+        el("span", { class: "card__file-icon", text: "📄" }),
+        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
+      ])
+    );
+  }
 
-    if (card.linkUrl) children.push(buildLinkPreview(card));
+  if (card.linkUrl) children.push(buildLinkPreview(card));
 
-    if (card.isPrompt && card.body) {
-      children.push(
-        el("button", {
-          class: "btn btn--ghost btn--sm card__prompt-copy",
-          text: "📋 복사",
-          on: {
-            click: (e) => {
-              e.stopPropagation();
-              copyText(card.body);
-            },
+  if (card.isPrompt && card.body) {
+    children.push(
+      el("button", {
+        class: "btn btn--ghost btn--sm card__prompt-copy",
+        text: "📋 복사",
+        on: {
+          click: (e) => {
+            e.stopPropagation();
+            copyText(card.body);
           },
-        })
-      );
-    }
+        },
+      })
+    );
   }
 
   // footer
