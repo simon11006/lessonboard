@@ -54,8 +54,12 @@ export async function uploadFile(file) {
  * @param {object} data { title, body, isPrompt, file?, fileMeta?, linkUrl, linkPreview, authorName }
  */
 export async function addCard(columnId, data) {
+  // 새 글 위치: "bottom"이면 맨 아래(최소 order-1), 기본은 맨 위(최대 order+1)
   const snap = await getDocs(query(cardsCol(columnId), orderBy("order", "desc")));
-  const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
+  let order;
+  if (snap.empty) order = 1;
+  else if (data.newCardPosition === "bottom") order = (snap.docs[snap.docs.length - 1].data().order ?? 0) - 1;
+  else order = (snap.docs[0].data().order ?? 0) + 1;
 
   let fileMeta = data.fileMeta || null;
   if (data.file) fileMeta = await uploadFile(data.file);
@@ -72,7 +76,7 @@ export async function addCard(columnId, data) {
     linkPreview: data.linkPreview || null,
     authorName: data.authorName?.trim() || "익명",
     authorUid: getUid(),
-    order: maxOrder + 1,
+    order,
     createdAt: serverTimestamp(),
   });
 }
@@ -112,6 +116,14 @@ export function reorderCards(columnId, orderedIds) {
   orderedIds.forEach((id, i) => {
     batch.update(doc(db, "columns", columnId, "cards", id), { order: n - i });
   });
+  return batch.commit();
+}
+
+/** 두 카드의 order 를 맞바꿔 위/아래로 이동 (강사 위치 수정용) */
+export function swapCardOrder(columnId, cardA, cardB) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, "columns", columnId, "cards", cardA.id), { order: cardB.order });
+  batch.update(doc(db, "columns", columnId, "cards", cardB.id), { order: cardA.order });
   return batch.commit();
 }
 

@@ -25,7 +25,7 @@ export function subscribeColumns(cb) {
   });
 }
 
-export async function addColumn(title, writePermission = "all", layout = "list", tabId = null) {
+export async function addColumn(title, writePermission = "all", layout = "list", tabId = null, newCardPosition = "top") {
   // 새 칼럼은 맨 뒤로
   const snap = await getDocs(query(columnsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
@@ -35,12 +35,17 @@ export async function addColumn(title, writePermission = "all", layout = "list",
     writePermission,
     layout, // "list" | "gallery"
     tabId, // 속한 탭 (없으면 null → 첫 탭에 표시)
+    newCardPosition, // "top" | "bottom" — 새 글을 어디에 넣을지
     createdAt: serverTimestamp(),
   });
 }
 
 export function setColumnTab(columnId, tabId) {
   return updateDoc(doc(db, "columns", columnId), { tabId });
+}
+
+export function setColumnNewCardPosition(columnId, newCardPosition) {
+  return updateDoc(doc(db, "columns", columnId), { newCardPosition });
 }
 
 export function renameColumn(columnId, title) {

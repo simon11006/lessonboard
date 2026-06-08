@@ -6,11 +6,12 @@ import {
   setColumnPermission,
   setColumnLayout,
   setColumnTab,
+  setColumnNewCardPosition,
   swapColumnOrder,
   deleteColumn,
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards } from "./cards.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -308,7 +309,7 @@ function renderWebappTab(tab) {
       gallery.appendChild(emptyMsg());
       return;
     }
-    cards.forEach((card) => gallery.appendChild(buildCard(col, card)));
+    cards.forEach((card, idx) => gallery.appendChild(buildCard(col, card, cards, idx)));
   });
   cardUnsubs.set(col.id, unsub);
 }
@@ -372,14 +373,14 @@ function buildColumn(column, index, total) {
     if (!cards.length) {
       body.appendChild(el("div", { class: "board__empty", attrs: { style: "padding:14px 4px;font-size:12.5px;" }, text: "아직 글이 없습니다." }));
     }
-    cards.forEach((card) => body.appendChild(buildCard(column, card)));
+    cards.forEach((card, idx) => body.appendChild(buildCard(column, card, cards, idx)));
   });
   cardUnsubs.set(column.id, unsub);
 
   return colEl;
 }
 
-function buildCard(column, card) {
+function buildCard(column, card, cards = [], index = 0) {
   const children = [];
 
   if (card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
@@ -420,6 +421,13 @@ function buildCard(column, card) {
 
   // footer
   const actions = [];
+  // 강사: 카드 위치(순서) 수정 ▲▼
+  if (isTeacher() && cards.length > 1) {
+    if (index > 0)
+      actions.push(el("button", { class: "icon-btn", text: "▲", attrs: { title: "위로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index - 1]); } } }));
+    if (index < cards.length - 1)
+      actions.push(el("button", { class: "icon-btn", text: "▼", attrs: { title: "아래로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index + 1]); } } }));
+  }
   if (canManage(card.authorUid)) {
     actions.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "수정" }, on: { click: (e) => { e.stopPropagation(); openCardForm(column, card); } } }));
     actions.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: (e) => { e.stopPropagation(); confirmDeleteCard(column, card); } } }));
@@ -718,6 +726,7 @@ function openCardForm(column, existing = null) {
         await updateCard(column.id, existing.id, payload);
         showToast("수정했습니다");
       } else {
+        payload.newCardPosition = column.newCardPosition; // 칼럼 설정에 따라 위/아래 삽입
         await addCard(column.id, payload);
         showToast("등록했습니다");
       }
@@ -756,19 +765,24 @@ export function openColumnForm() {
     ? el("select", { class: "select" }, boardTabs.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
     : null;
   if (tabSelect) tabSelect.value = boardTabs.some((t) => t.id === activeTabId) ? activeTabId : boardTabs[0].id;
+  const posSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "top" }, text: "맨 위 (최신 글이 위로)" }),
+    el("option", { attrs: { value: "bottom" }, text: "맨 아래 (최신 글이 아래로)" }),
+  ]);
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
+    el("div", { class: "field" }, [el("label", { text: "새 글 위치" }), posSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "추가" });
   saveBtn.addEventListener("click", async () => {
     const title = titleInput.value.trim();
     if (!title) return showToast("게시판 이름을 입력하세요");
     try {
-      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null);
+      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null, posSelect.value);
       showToast("게시판을 추가했습니다");
       closeModal();
     } catch (e) {
@@ -802,12 +816,18 @@ function openColumnSettings(column) {
     ? el("select", { class: "select" }, boardTabs.map((t) => el("option", { attrs: { value: t.id }, text: t.title })))
     : null;
   if (tabSelect) tabSelect.value = boardTabs.some((t) => t.id === curTab) ? curTab : boardTabs[0].id;
+  const posSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "top" }, text: "맨 위 (최신 글이 위로)" }),
+    el("option", { attrs: { value: "bottom" }, text: "맨 아래 (최신 글이 아래로)" }),
+  ]);
+  posSelect.value = column.newCardPosition || "top";
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
+    el("div", { class: "field" }, [el("label", { text: "새 글 위치" }), posSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
   saveBtn.addEventListener("click", async () => {
@@ -818,6 +838,7 @@ function openColumnSettings(column) {
       if (permSelect.value !== (column.writePermission || "all")) await setColumnPermission(column.id, permSelect.value);
       if (layoutSelect.value !== (column.layout || "list")) await setColumnLayout(column.id, layoutSelect.value);
       if (tabSelect && tabSelect.value !== curTab) await setColumnTab(column.id, tabSelect.value);
+      if (posSelect.value !== (column.newCardPosition || "top")) await setColumnNewCardPosition(column.id, posSelect.value);
       showToast("저장했습니다");
       closeModal();
     } catch (e) {
