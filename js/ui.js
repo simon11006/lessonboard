@@ -479,6 +479,14 @@ function openCardForm(column, existing = null) {
   document.addEventListener("paste", onPaste);
 
   function setFile(file) {
+    if (file) {
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      // PDF 는 압축 없이 그대로 올라가므로 20MB 제한을 미리 안내. (이미지는 업로드 전 자동 압축)
+      if (isPdf && file.size > 20 * 1024 * 1024) {
+        showToast("PDF는 20MB까지 첨부할 수 있어요");
+        return;
+      }
+    }
     pastedFile = file;
     removeExistingFile = false;
     chosen.innerHTML = "";
@@ -514,7 +522,7 @@ function openCardForm(column, existing = null) {
       el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "프롬프트로 표시 (복사 버튼 추가)" })]),
     ]),
     el("div", { class: "field" }, [el("label", { text: "링크" }), linkInput, el("p", { class: "hint", text: "주소를 넣으면 미리보기 카드가 자동 생성됩니다 (실패 시 단순 링크)." })]),
-    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷)" }), pasteZone, fileInput, chosen]),
+    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷, 최대 20MB)" }), pasteZone, fileInput, chosen]),
   ]);
 
   const saveBtn = el("button", { class: "btn btn--primary", text: isEdit ? "수정" : "등록" });
