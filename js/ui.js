@@ -246,6 +246,12 @@ function renderTabs() {
   if (teacher) {
     bar.appendChild(el("button", { class: "tab-add", text: "＋ 탭", on: { click: openTabForm } }));
   }
+
+  // 웹앱 탭이면 글쓰기 버튼을 탭 라인 우측에 둔다
+  const at = activeTab();
+  if (at && at.type === "webapp") {
+    bar.appendChild(el("button", { class: "btn btn--primary tab-write", text: "＋ 글쓰기", on: { click: () => addWebappCard(at) } }));
+  }
 }
 
 function renderBoard() {
@@ -285,11 +291,7 @@ function renderWebappTab(tab) {
   const board = boardEl();
   const col = columnsCache.find((c) => c.tabId === tab.id);
 
-  const toolbar = el("div", { class: "webapp-toolbar" }, [
-    el("button", { class: "btn btn--primary", text: "＋ 글쓰기", on: { click: () => addWebappCard(tab) } }),
-  ]);
   const gallery = el("div", { class: "webapp-gallery" });
-  board.appendChild(toolbar);
   board.appendChild(gallery);
 
   const emptyMsg = () => el("div", { class: "board__empty", text: "아직 올라온 웹앱이 없습니다. ‘＋ 글쓰기’로 첫 작품을 올려보세요." });
