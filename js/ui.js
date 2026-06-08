@@ -4,6 +4,7 @@ import {
   addColumn,
   renameColumn,
   setColumnPermission,
+  setColumnLayout,
   swapColumnOrder,
   deleteColumn,
 } from "./columns.js";
@@ -200,6 +201,7 @@ function renderBoard(columns) {
 function buildColumn(column, index, total) {
   const teacher = isTeacher();
   const permTeacherOnly = column.writePermission === "teacher";
+  const isGallery = column.layout === "gallery";
 
   const tools = [];
   if (teacher) {
@@ -219,7 +221,7 @@ function buildColumn(column, index, total) {
     el("div", { class: "column__tools" }, tools),
   ]);
 
-  const body = el("div", { class: "column__body" });
+  const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
   attachColumnDnD(body, column);
 
   const canWrite = !permTeacherOnly || teacher;
@@ -231,7 +233,7 @@ function buildColumn(column, index, total) {
       })
     : null;
 
-  const colEl = el("div", { class: "column" }, [header, body, addBtn]);
+  const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : "") }, [header, body, addBtn]);
 
   // 카드 실시간 구독
   const unsub = subscribeCards(column.id, (cards) => {
@@ -615,16 +617,21 @@ export function openColumnForm() {
     el("option", { attrs: { value: "all" }, text: "모두 글쓰기 가능" }),
     el("option", { attrs: { value: "teacher" }, text: "강사만 글쓰기 가능" }),
   ]);
+  const layoutSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "list" }, text: "목록 (좁은 세로 칼럼)" }),
+    el("option", { attrs: { value: "gallery" }, text: "갤러리 (넓은 그리드 · 웹앱/이미지에 적합)" }),
+  ]);
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
+    el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "추가" });
   saveBtn.addEventListener("click", async () => {
     const title = titleInput.value.trim();
     if (!title) return showToast("게시판 이름을 입력하세요");
     try {
-      await addColumn(title, permSelect.value);
+      await addColumn(title, permSelect.value, layoutSelect.value);
       showToast("게시판을 추가했습니다");
       closeModal();
     } catch (e) {
@@ -646,9 +653,15 @@ function openColumnSettings(column) {
     el("option", { attrs: { value: "teacher" }, text: "강사만 글쓰기 가능" }),
   ]);
   permSelect.value = column.writePermission || "all";
+  const layoutSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "list" }, text: "목록 (좁은 세로 칼럼)" }),
+    el("option", { attrs: { value: "gallery" }, text: "갤러리 (넓은 그리드 · 웹앱/이미지에 적합)" }),
+  ]);
+  layoutSelect.value = column.layout || "list";
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
+    el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
   saveBtn.addEventListener("click", async () => {
@@ -657,6 +670,7 @@ function openColumnSettings(column) {
     try {
       if (title !== column.title) await renameColumn(column.id, title);
       if (permSelect.value !== (column.writePermission || "all")) await setColumnPermission(column.id, permSelect.value);
+      if (layoutSelect.value !== (column.layout || "list")) await setColumnLayout(column.id, layoutSelect.value);
       showToast("저장했습니다");
       closeModal();
     } catch (e) {

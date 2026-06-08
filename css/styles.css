@@ -213,6 +213,22 @@ body {
   margin: 6px auto 10px; font-size: 12.5px;
 }
 
+/* 갤러리(그리드) 모드 — 웹앱/이미지 쇼케이스용 */
+.column--gallery {
+  flex: 0 0 auto;
+  width: min(920px, 84vw);
+}
+.column__body--gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
+  gap: 13px;
+  align-content: start;
+}
+.column__body--gallery .board__empty { grid-column: 1 / -1; }
+/* 갤러리에선 카드 높이를 균질하게: 썸네일 비율 고정 */
+.column--gallery .card__media img,
+.column--gallery .link-preview__img { height: 150px; }
+
 .column__add {
   margin: 0 13px 13px;
   width: auto;            /* btn--block 의 width:100% 를 덮어 칸 넘침 방지 */

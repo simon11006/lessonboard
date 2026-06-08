@@ -25,7 +25,7 @@ export function subscribeColumns(cb) {
   });
 }
 
-export async function addColumn(title, writePermission = "all") {
+export async function addColumn(title, writePermission = "all", layout = "list") {
   // 새 칼럼은 맨 뒤로
   const snap = await getDocs(query(columnsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
@@ -33,6 +33,7 @@ export async function addColumn(title, writePermission = "all") {
     title: title.trim(),
     order: maxOrder + 1,
     writePermission,
+    layout, // "list" | "gallery"
     createdAt: serverTimestamp(),
   });
 }
@@ -43,6 +44,10 @@ export function renameColumn(columnId, title) {
 
 export function setColumnPermission(columnId, writePermission) {
   return updateDoc(doc(db, "columns", columnId), { writePermission });
+}
+
+export function setColumnLayout(columnId, layout) {
+  return updateDoc(doc(db, "columns", columnId), { layout });
 }
 
 /** 두 칼럼의 order 값을 맞바꿔 좌/우 이동 */
