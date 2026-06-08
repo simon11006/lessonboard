@@ -1,6 +1,7 @@
 // 앱 부트스트랩
 import { initAuth } from "./firebase.js";
 import { setUid, restoreTeacher } from "./auth.js";
+import { ensureDefaultTab } from "./tabs.js";
 import { initHeader, startBoard, showToast } from "./ui.js";
 
 async function main() {
@@ -8,6 +9,7 @@ async function main() {
   try {
     const uid = await initAuth();
     setUid(uid);
+    ensureDefaultTab().catch((e) => console.warn("기본 탭 생성 생략:", e.message));
     startBoard();
     restoreTeacher(); // 새로고침해도 강사 모드 유지
   } catch (err) {

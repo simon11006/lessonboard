@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   getDocs,
@@ -17,6 +18,17 @@ import {
 import { db } from "./firebase.js";
 
 const tabsRef = collection(db, "tabs");
+
+/** 탭이 하나도 없으면 기본 탭을 생성한다 (고정 ID 'default' → 동시 접속 시 중복 방지). */
+export async function ensureDefaultTab() {
+  const snap = await getDocs(tabsRef);
+  if (!snap.empty) return;
+  await setDoc(doc(db, "tabs", "default"), {
+    title: "강의용 게시판",
+    order: 0,
+    createdAt: serverTimestamp(),
+  });
+}
 
 /** 탭 실시간 구독 (order 오름차순) */
 export function subscribeTabs(cb) {
