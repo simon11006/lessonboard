@@ -245,13 +245,19 @@ body {
   border-bottom: 1px solid var(--line);
   border-radius: var(--radius) var(--radius) 0 0;
 }
+.column__titlewrap {
+  display: flex; align-items: center; gap: 7px;
+  flex: 0 1 auto; min-width: 0;
+}
+.column__spacer { flex: 1 1 auto; }
 .column__title {
-  flex: 1 1 auto;
+  flex: 0 1 auto; min-width: 0;
   font-family: var(--font-serif);
   font-size: 15px; font-weight: 600; margin: 0;
   letter-spacing: -0.01em; color: var(--ink);
   word-break: break-word; line-height: 1.3;
 }
+.column__write { flex: 0 0 auto; padding: 6px 11px; font-size: 12px; }
 .column__count {
   font-size: 11px; font-weight: 700; color: var(--ink-soft);
   background: var(--surface); border: 1px solid var(--line);
@@ -291,20 +297,6 @@ body {
 /* 갤러리에선 카드 높이를 균질하게: 썸네일 비율 고정 */
 .column--gallery .card__media img,
 .column--gallery .link-preview__img { height: 150px; }
-
-.column__add {
-  margin: 13px 13px 0;    /* 헤더 바로 아래에 배치 */
-  width: auto;            /* btn--block 의 width:100% 를 덮어 칸 넘침 방지 */
-  background: transparent;
-  border: 1px dashed var(--line-strong);
-  color: var(--ink-soft);
-}
-.column__add:hover {
-  background: var(--accent-tint);
-  border-color: var(--accent);
-  border-style: dashed;
-  color: var(--accent-deep);
-}
 
 /* 스크롤바 (웹킷) */
 .column__body::-webkit-scrollbar, .board::-webkit-scrollbar { height: 9px; width: 9px; }

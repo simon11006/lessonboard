@@ -411,26 +411,32 @@ function buildColumn(column, index, total) {
   }
 
   const countEl = el("span", { class: "column__count", text: "" });
-  const header = el("div", { class: "column__header" }, [
-    el("h2", { class: "column__title" }, [column.title, column.lockHash ? el("span", { class: "card__lock-icon", text: "🔒" }) : null]),
-    permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "강사" }) : null,
-    countEl,
-    el("div", { class: "column__tools" }, tools),
-  ]);
-
-  const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
 
   const canWrite = (!permTeacherOnly || teacher) && !colLocked;
-  const addBtn = canWrite
+  const headerAddBtn = canWrite
     ? el("button", {
-        class: "btn btn--ghost btn--block column__add",
+        class: "btn btn--primary btn--sm column__write",
         text: "＋ 글쓰기",
         on: { click: () => openCardForm(column) },
       })
     : null;
 
-  // 글쓰기 버튼을 헤더 바로 아래에 배치
-  const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : ""), attrs: { "data-column-id": column.id } }, [header, addBtn, body]);
+  // 제목 + 게시글 수 + 권한 배지를 한 묶음으로 (수는 제목 바로 옆)
+  const titleWrap = el("div", { class: "column__titlewrap" }, [
+    el("h2", { class: "column__title" }, [column.title, column.lockHash ? el("span", { class: "card__lock-icon", text: "🔒" }) : null]),
+    countEl,
+    permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "강사" }) : null,
+  ]);
+  const header = el("div", { class: "column__header" }, [
+    titleWrap,
+    el("span", { class: "column__spacer" }),
+    teacher ? el("div", { class: "column__tools" }, tools) : null,
+    headerAddBtn, // 헤더 오른쪽 끝 글쓰기
+  ]);
+
+  const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
+
+  const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : ""), attrs: { "data-column-id": column.id } }, [header, body]);
 
   // 강사: 헤더를 잡고 드래그해 좌우 순서 변경
   if (teacher) attachColumnHeaderDrag(header, colEl, column);
