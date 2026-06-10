@@ -415,7 +415,7 @@ function buildColumn(column, index, total) {
   const canWrite = (!permTeacherOnly || teacher) && !colLocked;
   const headerAddBtn = canWrite
     ? el("button", {
-        class: "btn btn--primary btn--sm column__write",
+        class: "btn btn--sm column__write",
         text: "＋ 글쓰기",
         on: { click: () => openCardForm(column) },
       })
