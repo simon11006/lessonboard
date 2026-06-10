@@ -974,19 +974,58 @@ function openCardForm(column, existing = null) {
   overlay._cleanup = () => document.removeEventListener("paste", onPaste);
 }
 
-// 강사: 글 복사 / 다른 게시판으로 이동
+// 강사: 글 복사 / 다른 게시판으로 이동 (탭 선택 → 게시판 선택 2단계)
 function openCardMoveCopy(column, card) {
   const firstTabId = tabsCache[0] ? tabsCache[0].id : null;
-  const options = columnsCache.map((col) => {
-    const tab = tabsCache.find((t) => t.id === (col.tabId || firstTabId));
-    const label = tab && tab.type === "webapp" ? `${tab.title} (웹앱)` : `${tab ? tab.title + " › " : ""}${col.title}`;
-    return el("option", { attrs: { value: col.id }, text: label });
-  });
-  const sel = el("select", { class: "select" }, options);
-  sel.value = column.id;
+
+  // 게시판 타입 탭만 (웹앱 탭은 칼럼이 없으므로 제외)
+  const boardTabs = tabsCache.filter((t) => t.type !== "webapp");
+
+  // 탭에 속한 칼럼 목록 (tabId 없는 칼럼은 첫 탭 소속)
+  const getColsForTab = (tabId) =>
+    columnsCache.filter((c) => c.tabId === tabId || (!c.tabId && tabId === firstTabId));
+
+  if (!boardTabs.length) {
+    openModal([
+      modalHeader("글 복사 / 이동"),
+      el("div", { class: "modal__body" }, [el("p", { text: "이동 가능한 게시판 탭이 없습니다." })]),
+      el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "닫기", on: { click: closeModal } })]),
+    ]);
+    return;
+  }
+
+  // 현재 글이 속한 탭을 기본 선택
+  const currentTabId = column.tabId || firstTabId;
+  const defaultTab = boardTabs.find((t) => t.id === currentTabId) || boardTabs[0];
+
+  const tabSel = el("select", { class: "select" },
+    boardTabs.map((t) => el("option", { attrs: { value: t.id }, text: t.title }))
+  );
+  tabSel.value = defaultTab.id;
+
+  const colSel = el("select", { class: "select" });
+  const colField = el("div", { class: "field" }, [el("label", { text: "대상 게시판" }), colSel]);
+  const hint = el("p", { class: "hint", text: "복사: 원본은 그대로 두고 사본 생성 · 이동: 원본을 옮김(댓글 포함)." });
+
+  const updateCols = () => {
+    const cols = getColsForTab(tabSel.value);
+    colSel.innerHTML = "";
+    if (!cols.length) {
+      colSel.appendChild(el("option", { attrs: { disabled: "", value: "" }, text: "이 탭에 게시판이 없습니다" }));
+      colField.style.display = "none";
+    } else {
+      cols.forEach((c) => colSel.appendChild(el("option", { attrs: { value: c.id }, text: c.title })));
+      // 같은 탭이면 현재 게시판을 기본값으로
+      colSel.value = cols.some((c) => c.id === column.id) ? column.id : cols[0].id;
+      colField.style.display = "";
+    }
+  };
+  tabSel.addEventListener("change", updateCols);
+  updateCols();
 
   const run = async (mover, label) => {
-    const target = sel.value;
+    const target = colSel.value;
+    if (!target) return showToast("대상 게시판을 선택하세요");
     closeModal();
     try {
       await mover(target);
@@ -1001,7 +1040,9 @@ function openCardMoveCopy(column, card) {
   openModal([
     modalHeader("글 복사 / 이동"),
     el("div", { class: "modal__body" }, [
-      el("div", { class: "field" }, [el("label", { text: "대상 게시판" }), sel, el("p", { class: "hint", text: "복사: 원본은 그대로 두고 사본 생성 · 이동: 원본을 옮김(댓글 포함)." })]),
+      el("div", { class: "field" }, [el("label", { text: "탭 선택" }), tabSel]),
+      colField,
+      hint,
     ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), copyBtn, moveBtn]),
   ]);
