@@ -7,11 +7,13 @@ import {
   setColumnLayout,
   setColumnTab,
   setColumnNewCardPosition,
+  setColumnGalleryCols,
+  setColumnLock,
   swapColumnOrder,
   deleteColumn,
 } from "./columns.js";
-import { subscribeTabs, addTab, renameTab, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock, setCardHidden } from "./cards.js";
+import { subscribeTabs, addTab, renameTab, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -229,14 +231,14 @@ function renderTabs() {
     const group = el("div", { class: "tab-group" }, [
       el("button", {
         class: "tab" + (active ? " tab--active" : ""),
-        text: tab.title,
-        on: { click: () => { activeTabId = tab.id; renderAll(); } },
-      }),
+        on: { click: () => selectTab(tab) },
+      }, [tab.title, tab.lockHash ? el("span", { class: "tab-lock-icon", text: "🔒" }) : null]),
     ]);
     if (teacher && active) {
       const tools = [];
       if (idx > 0) tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapTabOrder(tab, tabsCache[idx - 1]) } }));
       if (idx < tabsCache.length - 1) tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapTabOrder(tab, tabsCache[idx + 1]) } }));
+      tools.push(el("button", { class: "icon-btn", text: tab.lockHash ? "🔒" : "🔓", attrs: { title: tab.lockHash ? "탭 잠금됨 (변경/해제)" : "탭 비밀번호 잠금" }, on: { click: () => openTabLock(tab) } }));
       tools.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "탭 이름 변경" }, on: { click: () => openTabRename(tab) } }));
       tools.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "탭 삭제" }, on: { click: () => confirmDeleteTab(tab) } }));
       group.appendChild(el("span", { class: "tab-tools" }, tools));
@@ -334,6 +336,7 @@ function buildColumn(column, index, total) {
   const teacher = isTeacher();
   const permTeacherOnly = column.writePermission === "teacher";
   const isGallery = column.layout === "gallery";
+  const colLocked = !!column.lockHash && !teacher && !unlockedColumns.has(column.id);
 
   const tools = [];
   if (teacher) {
@@ -341,22 +344,22 @@ function buildColumn(column, index, total) {
       tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index - 1]) } }));
     if (index < total - 1)
       tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index + 1]) } }));
+    tools.push(el("button", { class: "icon-btn", text: column.lockHash ? "🔒" : "🔓", attrs: { title: column.lockHash ? "게시판 잠금됨 (변경/해제)" : "게시판 비밀번호 잠금" }, on: { click: () => openColumnLock(column) } }));
     tools.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "설정" }, on: { click: () => openColumnSettings(column) } }));
     tools.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: () => confirmDeleteColumn(column) } }));
   }
 
   const countEl = el("span", { class: "column__count", text: "" });
   const header = el("div", { class: "column__header" }, [
-    el("h2", { class: "column__title", text: column.title }),
+    el("h2", { class: "column__title" }, [column.title, column.lockHash ? el("span", { class: "card__lock-icon", text: "🔒" }) : null]),
     permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "강사" }) : null,
     countEl,
     el("div", { class: "column__tools" }, tools),
   ]);
 
   const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
-  attachColumnDnD(body, column);
 
-  const canWrite = !permTeacherOnly || teacher;
+  const canWrite = (!permTeacherOnly || teacher) && !colLocked;
   const addBtn = canWrite
     ? el("button", {
         class: "btn btn--ghost btn--block column__add",
@@ -366,6 +369,20 @@ function buildColumn(column, index, total) {
     : null;
 
   const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : "") }, [header, body, addBtn]);
+
+  if (isGallery) {
+    const cols = column.galleryCols || 3;
+    body.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    colEl.style.width = `min(90vw, ${cols * 250}px)`;
+  }
+
+  // 게시판 잠금: 비밀번호 입력 전엔 내용 숨김
+  if (colLocked) {
+    body.appendChild(el("div", { class: "column__locked", text: "🔒 비밀번호가 필요한 게시판입니다. 눌러서 입력하세요.", on: { click: () => openColumnUnlock(column) } }));
+    return colEl;
+  }
+
+  attachColumnDnD(body, column);
 
   // 카드 실시간 구독
   const unsub = subscribeCards(column.id, (allCards) => {
@@ -443,6 +460,7 @@ function buildCard(column, card, cards = [], index = 0) {
     actions.push(el("button", { class: "icon-btn", text: hiddenNow ? "🙈" : "👁", attrs: { title: hiddenNow ? "수강생에게 숨김 — 눌러서 다시 보이기" : "수강생에게 숨기기" }, on: { click: (e) => { e.stopPropagation(); setCardHidden(column.id, card.id, !hiddenNow).then(() => showToast(hiddenNow ? "다시 보입니다" : "수강생에게 숨겼습니다")).catch((err) => showToast("실패: " + err.message)); } } }));
     const lockedNow = !!card.lockHash;
     actions.push(el("button", { class: "icon-btn", text: lockedNow ? "🔒" : "🔓", attrs: { title: lockedNow ? "비밀번호 잠금됨 (변경/해제)" : "비밀번호 잠금" }, on: { click: (e) => { e.stopPropagation(); openCardLock(column, card); } } }));
+    actions.push(el("button", { class: "icon-btn", text: "⇄", attrs: { title: "복사 / 이동" }, on: { click: (e) => { e.stopPropagation(); openCardMoveCopy(column, card); } } }));
   }
   if (canManage(card.authorUid)) {
     actions.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "수정" }, on: { click: (e) => { e.stopPropagation(); openCardForm(column, card); } } }));
@@ -503,6 +521,107 @@ function buildLinkPreview(card) {
 // ---------- 카드 상세 + 댓글 ----------
 // 이번 세션에서 비밀번호를 풀어 열람 허용된 카드 id
 const unlockedCards = new Set();
+const unlockedColumns = new Set();
+const unlockedTabs = new Set();
+
+// 공통: 비밀번호 잠금 설정/변경/해제 모달
+function openLockEditor({ title, locked, hint, onSet, onRemove }) {
+  const pw = el("input", { class: "input", attrs: { type: "password", placeholder: locked ? "새 비밀번호 (변경 시 입력)" : "비밀번호" } });
+  const setBtn = el("button", { class: "btn btn--primary", text: locked ? "변경" : "잠금" });
+  setBtn.addEventListener("click", async () => {
+    const v = pw.value.trim();
+    if (v.length < 2) return showToast("비밀번호를 입력하세요");
+    setBtn.disabled = true;
+    try {
+      await onSet(await sha256(v));
+      showToast(locked ? "비밀번호를 변경했습니다" : "잠갔습니다");
+      closeModal();
+    } catch (e) {
+      showToast("저장 실패: " + e.message);
+      setBtn.disabled = false;
+    }
+  });
+  const footer = [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } })];
+  if (locked) {
+    footer.push(el("button", {
+      class: "btn btn--danger", text: "잠금 해제",
+      on: { click: async () => { try { await onRemove(); showToast("잠금을 해제했습니다"); closeModal(); } catch (e) { showToast("실패: " + e.message); } } },
+    }));
+  }
+  footer.push(setBtn);
+  openModal([
+    modalHeader(title),
+    el("div", { class: "modal__body" }, [el("div", { class: "field" }, [el("label", { text: "비밀번호" }), pw, el("p", { class: "hint", text: hint })])]),
+    el("div", { class: "modal__footer" }, footer),
+  ]);
+  pw.focus();
+}
+
+// 공통: 비밀번호 입력 모달
+function openUnlockPrompt({ hashOf, onSuccess, label }) {
+  const pw = el("input", { class: "input", attrs: { type: "password", placeholder: "비밀번호" } });
+  const okBtn = el("button", { class: "btn btn--primary", text: "열기" });
+  const tryOpen = async () => {
+    okBtn.disabled = true;
+    try {
+      if ((await sha256(pw.value)) === hashOf) {
+        closeModal();
+        onSuccess();
+      } else {
+        showToast("비밀번호가 올바르지 않습니다");
+        pw.value = "";
+        pw.focus();
+        okBtn.disabled = false;
+      }
+    } catch (e) { showToast("확인 실패: " + e.message); okBtn.disabled = false; }
+  };
+  okBtn.addEventListener("click", tryOpen);
+  pw.addEventListener("keydown", (e) => { if (e.key === "Enter") tryOpen(); });
+  openModal([
+    modalHeader("🔒 비밀번호 입력"),
+    el("div", { class: "modal__body" }, [el("div", { class: "field" }, [el("label", { text: label }), pw])]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), okBtn]),
+  ]);
+  pw.focus();
+}
+
+function openColumnLock(column) {
+  openLockEditor({
+    title: column.lockHash ? "🔒 게시판 잠금 설정" : "🔒 게시판 잠그기",
+    locked: !!column.lockHash,
+    hint: column.lockHash ? "이 게시판은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 수강생은 비밀번호를 입력해야 이 게시판을 볼 수 있어요. (강사는 바로 열람)",
+    onSet: (h) => setColumnLock(column.id, h),
+    onRemove: () => { unlockedColumns.delete(column.id); return setColumnLock(column.id, null); },
+  });
+}
+function openColumnUnlock(column) {
+  openUnlockPrompt({
+    hashOf: column.lockHash,
+    label: "이 게시판은 비밀번호로 보호되어 있습니다",
+    onSuccess: () => { unlockedColumns.add(column.id); renderAll(); },
+  });
+}
+function openTabLock(tab) {
+  openLockEditor({
+    title: tab.lockHash ? "🔒 탭 잠금 설정" : "🔒 탭 잠그기",
+    locked: !!tab.lockHash,
+    hint: tab.lockHash ? "이 탭은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 수강생은 비밀번호를 입력해야 이 탭에 들어올 수 있어요. (강사는 바로 입장)",
+    onSet: (h) => setTabLock(tab.id, h),
+    onRemove: () => { unlockedTabs.delete(tab.id); return setTabLock(tab.id, null); },
+  });
+}
+function selectTab(tab) {
+  if (tab.lockHash && !isTeacher() && !unlockedTabs.has(tab.id)) {
+    openUnlockPrompt({
+      hashOf: tab.lockHash,
+      label: "이 탭은 비밀번호로 보호되어 있습니다",
+      onSuccess: () => { unlockedTabs.add(tab.id); activeTabId = tab.id; renderAll(); },
+    });
+    return;
+  }
+  activeTabId = tab.id;
+  renderAll();
+}
 
 // 잠긴 글 열기 — 비밀번호 입력
 function openCardUnlock(column, card) {
@@ -704,6 +823,8 @@ function openCardForm(column, existing = null) {
   const promptCheck = el("input", { attrs: { type: "checkbox", id: "is-prompt" } });
   if (isEdit && existing.isPrompt) promptCheck.checked = true;
   const linkInput = el("input", { class: "input", attrs: { placeholder: "https:// 참고 사이트 · 실습 사이트 주소 (선택)", value: isEdit ? existing.linkUrl || "" : "" } });
+  const previewCheck = el("input", { attrs: { type: "checkbox", id: "show-preview" } });
+  if (isEdit && existing.linkPreview) previewCheck.checked = true;
 
   // 파일: 클립보드 붙여넣기 + 파일 선택
   const fileInput = el("input", { attrs: { type: "file", accept: "image/*,application/pdf", style: "display:none" } });
@@ -787,7 +908,12 @@ function openCardForm(column, existing = null) {
     el("div", { class: "field" }, [
       el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "프롬프트로 표시 (복사 버튼 추가)" })]),
     ]),
-    el("div", { class: "field" }, [el("label", { text: "링크" }), linkInput, el("p", { class: "hint", text: "주소를 넣으면 미리보기 카드가 자동 생성됩니다 (실패 시 단순 링크)." })]),
+    el("div", { class: "field" }, [
+      el("label", { text: "링크" }),
+      linkInput,
+      el("div", { class: "checkbox-row", attrs: { style: "margin-top:8px" } }, [previewCheck, el("label", { attrs: { for: "show-preview" }, text: "미리보기 표시 (체크 안 하면 바로가기 주소만)" })]),
+      el("p", { class: "hint", text: "미리보기를 켜면 사이트 첫 화면 썸네일이 생성됩니다 (실패 시 단순 링크)." }),
+    ]),
     el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷, 최대 20MB)" }), pasteZone, fileInput, chosen]),
   ]);
 
@@ -808,14 +934,13 @@ function openCardForm(column, existing = null) {
     saveBtn.disabled = true;
     saveBtn.textContent = "저장 중…";
     try {
-      // 링크 미리보기 (링크가 바뀌었거나, 기존 미리보기에 썸네일이 없으면 다시 생성)
-      let linkPreview = isEdit ? existing.linkPreview : null;
+      // 링크 미리보기는 '미리보기 표시'를 켰을 때만 생성. 미체크면 바로가기 주소만.
+      let linkPreview = null;
       const linkVal = linkInput.value.trim();
       const prevLink = isEdit ? existing.linkUrl || "" : "";
-      if (linkVal && (linkVal !== prevLink || !linkPreview || !linkPreview.image)) {
-        linkPreview = await fetchLinkPreview(linkVal);
-      } else if (!linkVal) {
-        linkPreview = null;
+      if (linkVal && previewCheck.checked) {
+        const reuse = isEdit && linkVal === prevLink && existing.linkPreview && existing.linkPreview.image;
+        linkPreview = reuse ? existing.linkPreview : await fetchLinkPreview(linkVal);
       }
 
       const payload = {
@@ -849,6 +974,39 @@ function openCardForm(column, existing = null) {
   overlay._cleanup = () => document.removeEventListener("paste", onPaste);
 }
 
+// 강사: 글 복사 / 다른 게시판으로 이동
+function openCardMoveCopy(column, card) {
+  const firstTabId = tabsCache[0] ? tabsCache[0].id : null;
+  const options = columnsCache.map((col) => {
+    const tab = tabsCache.find((t) => t.id === (col.tabId || firstTabId));
+    const label = tab && tab.type === "webapp" ? `${tab.title} (웹앱)` : `${tab ? tab.title + " › " : ""}${col.title}`;
+    return el("option", { attrs: { value: col.id }, text: label });
+  });
+  const sel = el("select", { class: "select" }, options);
+  sel.value = column.id;
+
+  const run = async (mover, label) => {
+    const target = sel.value;
+    closeModal();
+    try {
+      await mover(target);
+      showToast(label);
+    } catch (e) {
+      showToast("실패: " + e.message);
+    }
+  };
+  const copyBtn = el("button", { class: "btn btn--ghost", text: "복사", on: { click: () => run((t) => copyCardTo(column.id, card, t, { ownFile: false, withComments: false }), "복사했습니다") } });
+  const moveBtn = el("button", { class: "btn btn--primary", text: "이동", on: { click: () => run((t) => moveCardTo(column.id, card, t), "이동했습니다") } });
+
+  openModal([
+    modalHeader("글 복사 / 이동"),
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [el("label", { text: "대상 게시판" }), sel, el("p", { class: "hint", text: "복사: 원본은 그대로 두고 사본 생성 · 이동: 원본을 옮김(댓글 포함)." })]),
+    ]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), copyBtn, moveBtn]),
+  ]);
+}
+
 function confirmDeleteCard(column, card) {
   if (!confirm("이 글을 삭제할까요? 댓글과 첨부 파일도 함께 삭제됩니다.")) return;
   deleteCard(column.id, card)
@@ -876,12 +1034,23 @@ export function openColumnForm() {
     el("option", { attrs: { value: "top" }, text: "맨 위 (최신 글이 위로)" }),
     el("option", { attrs: { value: "bottom" }, text: "맨 아래 (최신 글이 아래로)" }),
   ]);
+  const colsSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "2" }, text: "2열" }),
+    el("option", { attrs: { value: "3" }, text: "3열" }),
+    el("option", { attrs: { value: "4" }, text: "4열" }),
+  ]);
+  colsSelect.value = "3";
+  const colsField = el("div", { class: "field" }, [el("label", { text: "그리드 열 수" }), colsSelect]);
+  const syncCols = () => { colsField.style.display = layoutSelect.value === "gallery" ? "" : "none"; };
+  layoutSelect.addEventListener("change", syncCols);
+  syncCols();
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
+    colsField,
     el("div", { class: "field" }, [el("label", { text: "새 글 위치" }), posSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "추가" });
@@ -889,7 +1058,7 @@ export function openColumnForm() {
     const title = titleInput.value.trim();
     if (!title) return showToast("게시판 이름을 입력하세요");
     try {
-      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null, posSelect.value);
+      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null, posSelect.value, Number(colsSelect.value));
       showToast("게시판을 추가했습니다");
       closeModal();
     } catch (e) {
@@ -928,12 +1097,23 @@ function openColumnSettings(column) {
     el("option", { attrs: { value: "bottom" }, text: "맨 아래 (최신 글이 아래로)" }),
   ]);
   posSelect.value = column.newCardPosition || "top";
+  const colsSelect = el("select", { class: "select" }, [
+    el("option", { attrs: { value: "2" }, text: "2열" }),
+    el("option", { attrs: { value: "3" }, text: "3열" }),
+    el("option", { attrs: { value: "4" }, text: "4열" }),
+  ]);
+  colsSelect.value = String(column.galleryCols || 3);
+  const colsField = el("div", { class: "field" }, [el("label", { text: "그리드 열 수" }), colsSelect]);
+  const syncCols = () => { colsField.style.display = layoutSelect.value === "gallery" ? "" : "none"; };
+  layoutSelect.addEventListener("change", syncCols);
+  syncCols();
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [el("label", { text: "게시판 이름" }), titleInput]),
     tabSelect ? el("div", { class: "field" }, [el("label", { text: "소속 탭" }), tabSelect]) : null,
     el("div", { class: "field" }, [el("label", { text: "글쓰기 권한" }), permSelect]),
     el("div", { class: "field" }, [el("label", { text: "보기 방식" }), layoutSelect]),
+    colsField,
     el("div", { class: "field" }, [el("label", { text: "새 글 위치" }), posSelect]),
   ]);
   const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
@@ -944,6 +1124,7 @@ function openColumnSettings(column) {
       if (title !== column.title) await renameColumn(column.id, title);
       if (permSelect.value !== (column.writePermission || "all")) await setColumnPermission(column.id, permSelect.value);
       if (layoutSelect.value !== (column.layout || "list")) await setColumnLayout(column.id, layoutSelect.value);
+      if (Number(colsSelect.value) !== (column.galleryCols || 3)) await setColumnGalleryCols(column.id, Number(colsSelect.value));
       if (tabSelect && tabSelect.value !== curTab) await setColumnTab(column.id, tabSelect.value);
       if (posSelect.value !== (column.newCardPosition || "top")) await setColumnNewCardPosition(column.id, posSelect.value);
       showToast("저장했습니다");

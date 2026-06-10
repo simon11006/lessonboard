@@ -129,6 +129,52 @@ export function setCardHidden(columnId, cardId, hidden) {
   return updateDoc(doc(db, "columns", columnId, "cards", cardId), { hidden });
 }
 
+/**
+ * 카드를 다른 게시판으로 복사한다 (이동은 복사 후 원본 삭제).
+ * @param {boolean} ownFile  새 카드가 Storage 파일을 소유하는지 (이동=true / 복사=false: 원본과 공유)
+ * @param {boolean} withComments 댓글까지 복사
+ */
+export async function copyCardTo(sourceColumnId, card, targetColumnId, { ownFile = false, withComments = false } = {}) {
+  const snap = await getDocs(query(cardsCol(targetColumnId), orderBy("order", "desc")));
+  const order = snap.empty ? 1 : (snap.docs[0].data().order ?? 0) + 1;
+  const newRef = await addDoc(cardsCol(targetColumnId), {
+    title: card.title || "",
+    body: card.body || "",
+    isPrompt: !!card.isPrompt,
+    fileUrl: card.fileUrl || null,
+    fileType: card.fileType || null,
+    fileName: card.fileName || null,
+    filePath: ownFile ? card.filePath || null : null, // 복사는 파일 미소유(공유) → 삭제 시 파일 안 지워짐
+    linkUrl: card.linkUrl || null,
+    linkPreview: card.linkPreview || null,
+    lockHash: card.lockHash || null,
+    hidden: !!card.hidden,
+    authorName: card.authorName || "익명",
+    authorUid: getUid(),
+    order,
+    createdAt: serverTimestamp(),
+  });
+  if (withComments) {
+    const cSnap = await getDocs(
+      query(collection(db, "columns", sourceColumnId, "cards", card.id, "comments"), orderBy("createdAt", "asc"))
+    );
+    for (const c of cSnap.docs) {
+      const d = c.data();
+      await addDoc(collection(db, "columns", targetColumnId, "cards", newRef.id, "comments"), {
+        body: d.body, authorName: d.authorName, authorUid: getUid(), createdAt: serverTimestamp(),
+      });
+    }
+  }
+  return newRef;
+}
+
+/** 카드 이동 = 댓글까지 복사 후 원본 삭제(파일은 새 카드가 이어받음) */
+export async function moveCardTo(sourceColumnId, card, targetColumnId) {
+  if (targetColumnId === sourceColumnId) return;
+  await copyCardTo(sourceColumnId, card, targetColumnId, { ownFile: true, withComments: true });
+  await deleteCard(sourceColumnId, card, { keepFile: true });
+}
+
 /** 두 카드의 order 를 맞바꿔 위/아래로 이동 (강사 위치 수정용) */
 export function swapCardOrder(columnId, cardA, cardB) {
   const batch = writeBatch(db);
@@ -137,8 +183,8 @@ export function swapCardOrder(columnId, cardA, cardB) {
   return batch.commit();
 }
 
-/** 카드 삭제 (하위 댓글 + Storage 파일 정리) */
-export async function deleteCard(columnId, card) {
+/** 카드 삭제 (하위 댓글 + Storage 파일 정리). keepFile 이면 파일은 남김(이동 시) */
+export async function deleteCard(columnId, card, { keepFile = false } = {}) {
   const commentsSnap = await getDocs(
     collection(db, "columns", columnId, "cards", card.id, "comments")
   );
@@ -147,7 +193,7 @@ export async function deleteCard(columnId, card) {
   batch.delete(doc(db, "columns", columnId, "cards", card.id));
   await batch.commit();
 
-  if (card.filePath) {
+  if (!keepFile && card.filePath) {
     try {
       await deleteObject(storageRef(storage, card.filePath));
     } catch (_) {

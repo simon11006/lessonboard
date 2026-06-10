@@ -25,7 +25,7 @@ export function subscribeColumns(cb) {
   });
 }
 
-export async function addColumn(title, writePermission = "all", layout = "list", tabId = null, newCardPosition = "top") {
+export async function addColumn(title, writePermission = "all", layout = "list", tabId = null, newCardPosition = "top", galleryCols = 3) {
   // 새 칼럼은 맨 뒤로
   const snap = await getDocs(query(columnsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
@@ -34,6 +34,7 @@ export async function addColumn(title, writePermission = "all", layout = "list",
     order: maxOrder + 1,
     writePermission,
     layout, // "list" | "gallery"
+    galleryCols, // 갤러리 열 수 (2|3|4)
     tabId, // 속한 탭 (없으면 null → 첫 탭에 표시)
     newCardPosition, // "top" | "bottom" — 새 글을 어디에 넣을지
     createdAt: serverTimestamp(),
@@ -46,6 +47,15 @@ export function setColumnTab(columnId, tabId) {
 
 export function setColumnNewCardPosition(columnId, newCardPosition) {
   return updateDoc(doc(db, "columns", columnId), { newCardPosition });
+}
+
+export function setColumnGalleryCols(columnId, galleryCols) {
+  return updateDoc(doc(db, "columns", columnId), { galleryCols });
+}
+
+/** 게시판(칼럼) 비밀번호 잠금 설정/해제 */
+export function setColumnLock(columnId, lockHash) {
+  return updateDoc(doc(db, "columns", columnId), { lockHash });
 }
 
 export function renameColumn(columnId, title) {

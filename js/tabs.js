@@ -48,6 +48,11 @@ export function renameTab(tabId, title) {
   return updateDoc(doc(db, "tabs", tabId), { title: title.trim() });
 }
 
+/** 탭 비밀번호 잠금 설정/해제 */
+export function setTabLock(tabId, lockHash) {
+  return updateDoc(doc(db, "tabs", tabId), { lockHash });
+}
+
 export async function swapTabOrder(tabA, tabB) {
   const batch = writeBatch(db);
   batch.update(doc(db, "tabs", tabA.id), { order: tabB.order });
