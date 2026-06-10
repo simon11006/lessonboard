@@ -188,6 +188,10 @@ body {
 .card[draggable="true"] { cursor: grab; }
 .card.dragging { opacity: 0.4; cursor: grabbing; }
 .column__body.drag-over { background: rgba(47, 109, 84, 0.05); }
+/* 칼럼(게시판) 헤더 드래그 — 강사 좌우 정렬 */
+.column__header--draggable { cursor: grab; }
+.column__header--draggable:active { cursor: grabbing; }
+.column.col-dragging { opacity: 0.45; }
 
 /* ---------- Board ---------- */
 .board {
@@ -289,7 +293,7 @@ body {
 .column--gallery .link-preview__img { height: 150px; }
 
 .column__add {
-  margin: 0 13px 13px;
+  margin: 13px 13px 0;    /* 헤더 바로 아래에 배치 */
   width: auto;            /* btn--block 의 width:100% 를 덮어 칸 넘침 방지 */
   background: transparent;
   border: 1px dashed var(--line-strong);

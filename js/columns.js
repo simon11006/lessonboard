@@ -78,6 +78,21 @@ export async function swapColumnOrder(colA, colB) {
   return batch.commit();
 }
 
+/**
+ * 칼럼을 시각적 배열대로 재배치한다 (헤더 드래그 정렬).
+ * 같은 탭에 보이는 칼럼들끼리만 다루므로, 이들이 갖고 있던 order 값들을
+ * 오름차순으로 모아 새 좌→우 순서에 그대로 다시 매긴다 (다른 탭 칼럼은 불변).
+ * @param {string[]} orderedIds 좌→우 순서의 칼럼 id 배열
+ * @param {number[]} sortedOrderValues 위 칼럼들의 기존 order 값(오름차순)
+ */
+export function reorderColumns(orderedIds, sortedOrderValues) {
+  const batch = writeBatch(db);
+  orderedIds.forEach((id, i) => {
+    batch.update(doc(db, "columns", id), { order: sortedOrderValues[i] });
+  });
+  return batch.commit();
+}
+
 /** 칼럼 삭제 (하위 카드/댓글도 함께 정리) */
 export async function deleteColumn(columnId) {
   const cardsSnap = await getDocs(collection(db, "columns", columnId, "cards"));

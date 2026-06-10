@@ -9,11 +9,11 @@ import {
   setColumnNewCardPosition,
   setColumnGalleryCols,
   setColumnLock,
-  swapColumnOrder,
+  reorderColumns,
   deleteColumn,
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, swapCardOrder, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -139,7 +139,8 @@ async function copyText(text) {
 const boardEl = () => $("#board");
 let columnsCache = [];
 const cardUnsubs = new Map(); // columnId -> unsubscribe
-let dragState = null; // { columnId, cardId, el }
+let dragState = null; // { columnId, cardId, el } — 카드 드래그
+let colDragState = null; // { columnId, el } — 칼럼(게시판) 헤더 드래그
 
 // 드래그 중 마우스 Y 기준으로 어느 카드 뒤에 삽입할지 계산
 function dragAfterElement(container, y) {
@@ -172,6 +173,55 @@ function attachColumnDnD(body, column) {
     body.classList.remove("drag-over");
     const orderedIds = [...body.querySelectorAll(".card")].map((c) => c.dataset.cardId);
     reorderCards(column.id, orderedIds).catch((err) => showToast("정렬 저장 실패: " + err.message));
+  });
+}
+
+// 칼럼 드래그 중 마우스 X 기준으로 어느 칼럼 앞에 삽입할지 계산
+function colDragAfterElement(board, x) {
+  const cols = [...board.querySelectorAll(".column:not(.col-dragging)")];
+  let closest = { offset: -Infinity, el: null };
+  for (const child of cols) {
+    const box = child.getBoundingClientRect();
+    const offset = x - box.left - box.width / 2;
+    if (offset < 0 && offset > closest.offset) closest = { offset, el: child };
+  }
+  return closest.el;
+}
+
+// 보드에 칼럼(게시판) 좌우 드래그 정렬 동작을 연결 (보드 요소는 유지되므로 1회만)
+function attachBoardColumnDnD(board) {
+  if (board._colDnD) return;
+  board._colDnD = true;
+  board.addEventListener("dragover", (e) => {
+    if (!colDragState) return; // 칼럼 헤더 드래그 중에만
+    e.preventDefault();
+    const after = colDragAfterElement(board, e.clientX);
+    if (after == null) board.appendChild(colDragState.el);
+    else board.insertBefore(colDragState.el, after);
+  });
+}
+
+// 칼럼 헤더를 드래그 핸들로 만들어 좌우 순서 변경 가능하게 한다 (강사용)
+function attachColumnHeaderDrag(header, colEl, column) {
+  header.setAttribute("draggable", "true");
+  header.classList.add("column__header--draggable");
+  header.addEventListener("dragstart", (e) => {
+    colDragState = { columnId: column.id, el: colEl };
+    colEl.classList.add("col-dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", column.id);
+  });
+  header.addEventListener("dragend", () => {
+    colEl.classList.remove("col-dragging");
+    if (!colDragState) return;
+    colDragState = null;
+    const board = boardEl();
+    const orderedIds = [...board.querySelectorAll(".column")].map((c) => c.dataset.columnId);
+    // 보이는 칼럼들이 갖고 있던 order 값을 오름차순으로 모아 새 순서에 재매김
+    const sortedVals = orderedIds
+      .map((id) => columnsCache.find((c) => c.id === id)?.order ?? 0)
+      .sort((a, b) => a - b);
+    reorderColumns(orderedIds, sortedVals).catch((err) => showToast("정렬 저장 실패: " + err.message));
   });
 }
 
@@ -287,6 +337,8 @@ function renderBoard() {
   columns.forEach((column, idx) => {
     board.appendChild(buildColumn(column, idx, columns.length));
   });
+
+  if (isTeacher()) attachBoardColumnDnD(board);
 }
 
 /** 웹앱 게시용 탭: 칼럼 없이 카드 갤러리로 직접 렌더 (암묵적 갤러리 칼럼 1개 사용) */
@@ -340,10 +392,6 @@ function buildColumn(column, index, total) {
 
   const tools = [];
   if (teacher) {
-    if (index > 0)
-      tools.push(el("button", { class: "icon-btn", text: "◀", attrs: { title: "왼쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index - 1]) } }));
-    if (index < total - 1)
-      tools.push(el("button", { class: "icon-btn", text: "▶", attrs: { title: "오른쪽으로" }, on: { click: () => swapColumnOrder(column, renderedColumns[index + 1]) } }));
     tools.push(el("button", { class: "icon-btn", text: column.lockHash ? "🔒" : "🔓", attrs: { title: column.lockHash ? "게시판 잠금됨 (변경/해제)" : "게시판 비밀번호 잠금" }, on: { click: () => openColumnLock(column) } }));
     tools.push(el("button", { class: "icon-btn", text: "✎", attrs: { title: "설정" }, on: { click: () => openColumnSettings(column) } }));
     tools.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: () => confirmDeleteColumn(column) } }));
@@ -368,7 +416,11 @@ function buildColumn(column, index, total) {
       })
     : null;
 
-  const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : "") }, [header, body, addBtn]);
+  // 글쓰기 버튼을 헤더 바로 아래에 배치
+  const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : ""), attrs: { "data-column-id": column.id } }, [header, addBtn, body]);
+
+  // 강사: 헤더를 잡고 드래그해 좌우 순서 변경
+  if (teacher) attachColumnHeaderDrag(header, colEl, column);
 
   if (isGallery) {
     const cols = column.galleryCols || 3;
@@ -447,13 +499,6 @@ function buildCard(column, card, cards = [], index = 0) {
 
   // footer
   const actions = [];
-  // 강사: 카드 위치(순서) 수정 ▲▼
-  if (isTeacher() && cards.length > 1) {
-    if (index > 0)
-      actions.push(el("button", { class: "icon-btn", text: "▲", attrs: { title: "위로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index - 1]); } } }));
-    if (index < cards.length - 1)
-      actions.push(el("button", { class: "icon-btn", text: "▼", attrs: { title: "아래로" }, on: { click: (e) => { e.stopPropagation(); swapCardOrder(column.id, card, cards[index + 1]); } } }));
-  }
   // 강사: 숨김 토글 + 비밀번호 잠금
   if (isTeacher()) {
     const hiddenNow = !!card.hidden;
