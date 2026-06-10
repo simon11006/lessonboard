@@ -2,61 +2,40 @@ rules_version = '2';
 
 // 바이브코딩 연수 게시판 Firestore 보안 규칙
 // ---------------------------------------------------------------------------
-// 로그인이 없는(익명 인증) 게시판이라 "소프트" 보호 수준입니다.
-//  - 읽기: 누구나
-//  - 생성: 익명 인증된 사용자, 본인 authorUid 강제
-//  - 수정: 작성 당시 본인(같은 익명 세션)만 → 페이지 이탈 시 권한 소멸
-//  - 삭제: 인증 사용자 허용 (강사의 '모든 글 삭제'를 규칙으로 신원 검증할 수
-//          없어 열어둠. UI에서는 강사 모드에서만 노출됩니다.)
+// 내부 연수 전용 게시판입니다. URL을 연수생에게만 공유하는 방식으로 접근을
+// 통제하고, 규칙은 단순하게 전체 허용으로 둡니다. (로그인이 없는 익명 구조라
+// 작성자/강사 신원을 규칙 단에서 검증할 수 없어 소프트 보호로 운영)
+//  - 강사 모드: UI 레벨 비밀번호 보호 (config/teacher 해시)
+//  - 글 잠금/숨김: UI 레벨 처리
 // ---------------------------------------------------------------------------
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
+    // 기존 컬렉션 (개인 앱 · 학습노트)
+    match /resources/{resourceId} {
+      allow read, write: if true;
     }
-    function isOwnerOnCreate() {
-      return isSignedIn() && request.resource.data.authorUid == request.auth.uid;
-    }
-    function isOwner() {
-      return isSignedIn() && resource.data.authorUid == request.auth.uid;
+    match /posts/{postId} {
+      allow read, write: if true;
     }
 
-    // 강사 비밀번호(해시) 등 설정값. 해시만 저장하므로 읽기 공개해도 안전.
+    // 연수 게시판 컬렉션
     match /config/{docId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
-
-    // 탭(상위 묶음). 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트).
     match /tabs/{tabId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
-
     match /columns/{columnId} {
-      // 칼럼은 강사가 관리하지만 익명 구조라 인증 사용자에게 열어둠(소프트)
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
-
+      allow read, write: if true;
       match /cards/{cardId} {
-        allow read: if true;
-        allow create: if isOwnerOnCreate();
-        // 본인은 자유 수정 / 그 외 사용자는 정렬(order)·잠금(lockHash)·숨김(hidden)만 변경 가능
-        // (order: 드래그·▲▼ 정렬, lockHash: 비밀번호 잠금, hidden: 강사 숨김)
-        allow update: if isOwner()
-          || (isSignedIn()
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order', 'lockHash', 'hidden']));
-        allow delete: if isSignedIn();   // 본인 또는 강사(모든 글 삭제)
-
+        allow read, write: if true;
         match /comments/{commentId} {
-          allow read: if true;
-          allow create: if isOwnerOnCreate();
-          allow update: if isOwner();
-          allow delete: if isSignedIn();
+          allow read, write: if true;
         }
       }
     }
+
   }
 }
