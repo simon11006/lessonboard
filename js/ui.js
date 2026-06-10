@@ -469,7 +469,18 @@ function buildCard(column, card, cards = [], index = 0) {
   const isLocked = !!card.lockHash;
 
   if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 수강생에게 숨김" }));
-  if (card.isPrompt) children.push(el("span", { class: "tag", text: "프롬프트" }));
+  // 프롬프트: 태그 + 복사 버튼을 한 줄에 (빈 공간 절약)
+  if (card.isPrompt) {
+    const tagRow = [el("span", { class: "tag", attrs: { style: "margin:0" }, text: "프롬프트" })];
+    if (card.body) {
+      tagRow.push(el("button", {
+        class: "btn btn--ghost btn--sm card__prompt-copy",
+        text: "📋 복사",
+        on: { click: (e) => { e.stopPropagation(); copyText(card.body); } },
+      }));
+    }
+    children.push(el("div", { class: "card__prompt-head" }, tagRow));
+  }
   if (card.title || isLocked) {
     children.push(el("h3", { class: "card__title" }, [
       card.title || "",
@@ -494,21 +505,6 @@ function buildCard(column, card, cards = [], index = 0) {
   }
 
   if (card.linkUrl) children.push(buildLinkPreview(card));
-
-  if (card.isPrompt && card.body) {
-    children.push(
-      el("button", {
-        class: "btn btn--ghost btn--sm card__prompt-copy",
-        text: "📋 복사",
-        on: {
-          click: (e) => {
-            e.stopPropagation();
-            copyText(card.body);
-          },
-        },
-      })
-    );
-  }
 
   // footer
   const actions = [];
