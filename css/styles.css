@@ -46,7 +46,7 @@
 /* hidden 속성은 항상 숨김 (.info-banner/.tabbar 등의 display 규칙이 덮어쓰지 않도록) */
 [hidden] { display: none !important; }
 
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; }
 
 body {
   font-family: var(--font-sans);
@@ -56,8 +56,8 @@ body {
   background-size: 22px 22px;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -156,7 +156,9 @@ body {
   background: rgba(251, 250, 246, 0.6);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
 }
+.tabbar::-webkit-scrollbar { display: none; } /* Chrome / Safari */
 .tab-group { display: flex; align-items: center; flex: 0 0 auto; }
 .tab {
   font-family: var(--font-serif);
@@ -192,7 +194,7 @@ body {
   flex: 1 1 auto;
   display: flex; align-items: flex-start; gap: 18px;
   padding: 26px 26px 48px;
-  overflow-x: auto; overflow-y: hidden;
+  overflow-x: auto;
   scroll-padding: 26px;
 }
 .board__loading, .board__empty {
@@ -204,7 +206,6 @@ body {
   flex-direction: column;
   align-items: stretch;
   overflow-x: hidden;
-  overflow-y: auto;
   padding: 16px 26px 48px;
 }
 .webapp-gallery {
@@ -224,7 +225,6 @@ body {
 .column {
   flex: 0 0 var(--col-width);
   width: var(--col-width);
-  max-height: 100%;
   display: flex; flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -264,8 +264,7 @@ body {
 .column__tools { display: flex; gap: 1px; }
 
 .column__body {
-  flex: 1 1 auto; min-height: 0;
-  overflow-y: auto;
+  flex: 1 1 auto;
   padding: 13px;
   display: flex; flex-direction: column; gap: 11px;
 }
@@ -499,14 +498,12 @@ body {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 720px) {
-  body { overflow: auto; height: auto; min-height: 100vh; }
   .app-header { flex-wrap: wrap; padding: 12px 16px; }
   .app-header h1 { font-size: 17px; }
   .info-banner { padding: 10px 16px; }
   .board {
     flex-direction: column; align-items: stretch;
-    overflow: visible; height: auto; padding: 18px 16px 40px;
+    overflow-x: hidden; padding: 18px 16px 40px;
   }
-  .column { flex-basis: auto; width: 100%; max-height: none; }
-  .column__body { max-height: none; }
+  .column { flex-basis: auto; width: 100%; }
 }
