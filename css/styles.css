@@ -89,6 +89,7 @@ body {
   font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
   color: var(--accent); text-transform: uppercase;
 }
+.app-header__titlerow { display: flex; align-items: center; gap: 6px; }
 .app-header h1 {
   font-family: var(--font-serif);
   font-size: 20px; font-weight: 700; margin: 0;

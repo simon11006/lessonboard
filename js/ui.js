@@ -24,7 +24,7 @@ import {
   exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
-import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, sha256 } from "./config.js";
+import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, subscribeSiteTitle, setSiteTitle, sha256 } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1434,6 +1434,39 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   pw1.focus();
 }
 
+// 게시판 제목 수정 모달 (강사 전용)
+function openEditTitleModal() {
+  const titleEl = $("#site-title");
+  const input = el("input", { class: "input", attrs: { type: "text", value: titleEl.textContent.trim() } });
+  const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
+
+  const save = async () => {
+    const v = input.value.trim();
+    if (!v) return showToast("제목을 입력해주세요");
+    saveBtn.disabled = true;
+    try {
+      await setSiteTitle(v);
+      showToast("제목을 변경했습니다");
+      closeModal();
+    } catch (e) {
+      showToast("저장 실패: " + e.message);
+      saveBtn.disabled = false;
+    }
+  };
+  saveBtn.addEventListener("click", save);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+
+  openModal([
+    modalHeader("게시판 제목 수정"),
+    el("div", { class: "modal__body" }, [
+      el("div", { class: "field" }, [el("label", { text: "제목" }), input]),
+    ]),
+    el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
+  ]);
+  input.focus();
+  input.select();
+}
+
 // ---------- 헤더 배선 ----------
 export function initHeader() {
   const modeBtn = $("#teacher-mode-btn");
@@ -1441,8 +1474,17 @@ export function initHeader() {
   const exportBtn = $("#export-btn");
   const changePwBtn = $("#change-pw-btn");
   const badge = $("#teacher-badge");
+  const editTitleBtn = $("#edit-title-btn");
+  const titleEl = $("#site-title");
 
   changePwBtn.addEventListener("click", () => openSetPasswordModal({ firstTime: false }));
+
+  // 게시판 제목 (Firestore 연동, 강사가 수정 가능)
+  subscribeSiteTitle((title) => {
+    titleEl.textContent = title || titleEl.textContent;
+    document.title = title || document.title;
+  });
+  editTitleBtn.addEventListener("click", openEditTitleModal);
 
   // 안내 배너 (한 번 닫으면 기억)
   const banner = $("#info-banner");
@@ -1483,6 +1525,7 @@ export function initHeader() {
     addColBtn.hidden = !on;
     exportBtn.hidden = !on;
     changePwBtn.hidden = !on;
+    editTitleBtn.hidden = !on;
     modeBtn.textContent = on ? "강사 모드 종료" : "강사 모드";
     renderAll(); // 권한에 따른 탭/버튼 재노출
   });
