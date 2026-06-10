@@ -36,14 +36,18 @@ export async function setTeacherPassword(plain) {
   await setDoc(teacherRef, { passwordHash, updatedAt: serverTimestamp() }, { merge: true });
 }
 
-/** 사이트 제목 실시간 구독. cb(title|null) */
-export function subscribeSiteTitle(cb) {
+/** 사이트 제목/부제 실시간 구독. cb({ title, kicker }) */
+export function subscribeSiteInfo(cb) {
   return onSnapshot(siteRef, (snap) => {
-    cb(snap.exists() ? snap.data().title || null : null);
+    const d = snap.exists() ? snap.data() : {};
+    cb({ title: d.title || null, kicker: d.kicker || null });
   });
 }
 
-/** 사이트 제목 변경 (강사 전용) */
-export function setSiteTitle(title) {
-  return setDoc(siteRef, { title: title.trim(), updatedAt: serverTimestamp() }, { merge: true });
+/** 사이트 제목/부제 변경 (강사 전용). 전달된 필드만 반영 */
+export function setSiteInfo({ title, kicker } = {}) {
+  const data = { updatedAt: serverTimestamp() };
+  if (title != null) data.title = title.trim();
+  if (kicker != null) data.kicker = kicker.trim();
+  return setDoc(siteRef, data, { merge: true });
 }

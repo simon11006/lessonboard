@@ -24,7 +24,7 @@ import {
   exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
-import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, subscribeSiteTitle, setSiteTitle, sha256 } from "./config.js";
+import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, subscribeSiteInfo, setSiteInfo, sha256 } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1434,18 +1434,20 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   pw1.focus();
 }
 
-// 게시판 제목 수정 모달 (강사 전용)
+// 게시판 제목/부제 수정 모달 (강사 전용)
 function openEditTitleModal() {
+  const kickerEl = $("#site-kicker");
   const titleEl = $("#site-title");
-  const input = el("input", { class: "input", attrs: { type: "text", value: titleEl.textContent.trim() } });
+  const kickerInput = el("input", { class: "input", attrs: { type: "text", value: kickerEl.textContent.trim(), placeholder: "예: VIBE CODING · WORKSHOP" } });
+  const titleInput = el("input", { class: "input", attrs: { type: "text", value: titleEl.textContent.trim() } });
   const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
 
   const save = async () => {
-    const v = input.value.trim();
-    if (!v) return showToast("제목을 입력해주세요");
+    const title = titleInput.value.trim();
+    if (!title) return showToast("제목을 입력해주세요");
     saveBtn.disabled = true;
     try {
-      await setSiteTitle(v);
+      await setSiteInfo({ title, kicker: kickerInput.value.trim() });
       showToast("제목을 변경했습니다");
       closeModal();
     } catch (e) {
@@ -1454,17 +1456,20 @@ function openEditTitleModal() {
     }
   };
   saveBtn.addEventListener("click", save);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+  const onEnter = (e) => { if (e.key === "Enter") save(); };
+  kickerInput.addEventListener("keydown", onEnter);
+  titleInput.addEventListener("keydown", onEnter);
 
   openModal([
     modalHeader("게시판 제목 수정"),
     el("div", { class: "modal__body" }, [
-      el("div", { class: "field" }, [el("label", { text: "제목" }), input]),
+      el("div", { class: "field" }, [el("label", { text: "부제 (상단 영문)" }), kickerInput]),
+      el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
   ]);
-  input.focus();
-  input.select();
+  titleInput.focus();
+  titleInput.select();
 }
 
 // ---------- 헤더 배선 ----------
@@ -1476,13 +1481,17 @@ export function initHeader() {
   const badge = $("#teacher-badge");
   const editTitleBtn = $("#edit-title-btn");
   const titleEl = $("#site-title");
+  const kickerEl = $("#site-kicker");
 
   changePwBtn.addEventListener("click", () => openSetPasswordModal({ firstTime: false }));
 
-  // 게시판 제목 (Firestore 연동, 강사가 수정 가능)
-  subscribeSiteTitle((title) => {
-    titleEl.textContent = title || titleEl.textContent;
-    document.title = title || document.title;
+  // 게시판 제목/부제 (Firestore 연동, 강사가 수정 가능)
+  subscribeSiteInfo(({ title, kicker }) => {
+    if (title) {
+      titleEl.textContent = title;
+      document.title = title;
+    }
+    if (kicker) kickerEl.textContent = kicker;
   });
   editTitleBtn.addEventListener("click", openEditTitleModal);
 
