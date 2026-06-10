@@ -300,9 +300,9 @@ function renderTabs() {
     bar.appendChild(el("button", { class: "tab-add", text: "＋ 탭", on: { click: openTabForm } }));
   }
 
-  // 웹앱 탭이면 글쓰기 버튼을 탭 라인 우측에 둔다
+  // 웹앱 탭이면 글쓰기 버튼을 탭 라인 우측에 둔다 (잠긴 탭은 제외)
   const at = activeTab();
-  if (at && at.type === "webapp") {
+  if (at && at.type === "webapp" && !isTabLocked(at)) {
     bar.appendChild(el("button", { class: "btn btn--primary tab-write", text: "＋ 글쓰기", on: { click: () => addWebappCard(at) } }));
   }
 }
@@ -316,6 +316,19 @@ function renderBoard() {
   board.innerHTML = "";
 
   const at = activeTab();
+
+  // 잠긴 탭은 비밀번호 입력 전엔 내용을 보여주지 않는다.
+  // (최초 로드 시 첫 탭이 자동 선택되는 경우에도 여기서 막아야 우회되지 않음)
+  if (isTabLocked(at)) {
+    board.classList.remove("board--webapp");
+    board.appendChild(
+      el("div", { class: "tab-locked-gate", on: { click: () => openTabUnlock(at) } }, [
+        el("div", { class: "column__locked", attrs: { style: "max-width:360px;margin:auto" }, text: "🔒 비밀번호가 필요한 탭입니다. 눌러서 입력하세요." }),
+      ])
+    );
+    return;
+  }
+
   if (at && at.type === "webapp") {
     board.classList.add("board--webapp");
     renderWebappTab(at);
@@ -655,13 +668,22 @@ function openTabLock(tab) {
     onRemove: () => { unlockedTabs.delete(tab.id); return setTabLock(tab.id, null); },
   });
 }
+// 이 탭이 (지금 사용자에게) 잠겨 있는지 — 강사·이미 푼 탭은 잠금 아님
+function isTabLocked(tab) {
+  return !!(tab && tab.lockHash && !isTeacher() && !unlockedTabs.has(tab.id));
+}
+function openTabUnlock(tab) {
+  openUnlockPrompt({
+    hashOf: tab.lockHash,
+    label: "이 탭은 비밀번호로 보호되어 있습니다",
+    onSuccess: () => { unlockedTabs.add(tab.id); activeTabId = tab.id; renderAll(); },
+  });
+}
 function selectTab(tab) {
-  if (tab.lockHash && !isTeacher() && !unlockedTabs.has(tab.id)) {
-    openUnlockPrompt({
-      hashOf: tab.lockHash,
-      label: "이 탭은 비밀번호로 보호되어 있습니다",
-      onSuccess: () => { unlockedTabs.add(tab.id); activeTabId = tab.id; renderAll(); },
-    });
+  if (isTabLocked(tab)) {
+    activeTabId = tab.id; // 활성 탭은 바꾸되, 내용은 렌더 단계에서 잠금 게이트로 막힘
+    renderAll();          // 뒤로 잠금 게이트를 그린 뒤
+    openTabUnlock(tab);   // 비밀번호 입력 모달을 띄움
     return;
   }
   activeTabId = tab.id;

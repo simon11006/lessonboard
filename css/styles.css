@@ -369,6 +369,8 @@ body {
   transition: border-color 0.15s, color 0.15s;
 }
 .column__locked:hover { border-color: var(--accent); color: var(--accent-deep); }
+/* 탭 전체 잠금 게이트 — 보드 중앙에 표시 */
+.tab-locked-gate { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; width: 100%; padding: 40px 0; cursor: pointer; }
 
 .card--hidden { opacity: 0.62; background: repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--surface-2) 10px 20px); }
 .card__hidden-badge {
