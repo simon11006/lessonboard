@@ -109,8 +109,15 @@ function webappStatsPatch(cardCount, participantCount) {
   return {
     cardCount,
     webappCount: cardCount,
+    webappsCount: cardCount,
+    appCount: cardCount,
     participantCount,
+    participants: participantCount,
+    participantStudents: participantCount,
+    studentParticipants: participantCount,
     studentCount: participantCount,
+    authorCount: participantCount,
+    makerCount: participantCount,
   };
 }
 
