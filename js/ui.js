@@ -71,6 +71,19 @@ function rememberName(name) {
   localStorage.setItem("vibe_board_name", name);
 }
 
+function normalizeParticipantName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ");
+}
+
+function countUniqueParticipants(cards) {
+  const names = new Set();
+  cards.forEach((card) => {
+    const name = normalizeParticipantName(card.authorName);
+    if (name && name !== "익명") names.add(name);
+  });
+  return names.size;
+}
+
 // ---------- 토스트 ----------
 let toastTimer;
 export function showToast(msg) {
@@ -359,7 +372,12 @@ function renderWebappTab(tab) {
   const board = boardEl();
   const col = columnsCache.find((c) => c.tabId === tab.id);
 
+  const summary = el("div", { class: "webapp-summary" }, [
+    el("span", { class: "webapp-summary__label", text: "참여학생" }),
+    el("span", { class: "webapp-summary__count", text: "0" }),
+  ]);
   const gallery = el("div", { class: "webapp-gallery" });
+  board.appendChild(summary);
   board.appendChild(gallery);
 
   const emptyMsg = () => el("div", { class: "board__empty", text: "아직 올라온 웹앱이 없습니다. ‘＋ 글쓰기’로 첫 작품을 올려보세요." });
@@ -372,6 +390,7 @@ function renderWebappTab(tab) {
   attachColumnDnD(gallery, col);
   const unsub = subscribeCards(col.id, (allCards) => {
     const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
+    $(".webapp-summary__count", summary).textContent = String(countUniqueParticipants(cards));
     gallery.innerHTML = "";
     if (!cards.length) {
       gallery.appendChild(emptyMsg());
@@ -882,10 +901,20 @@ function openCardDetail(column, card) {
 // ---------- 카드 작성/수정 폼 ----------
 function openCardForm(column, existing = null) {
   const isEdit = !!existing;
+  const isWebappPost =
+    activeTab()?.type === "webapp" ||
+    tabsCache.some((tab) => tab.id === column.tabId && tab.type === "webapp");
   let pastedFile = null;       // 클립보드/파일 입력으로 받은 File
   let removeExistingFile = false;
 
-  const nameInput = el("input", { class: "input", attrs: { placeholder: "이름", value: isEdit ? existing.authorName : lastName } });
+  const nameInput = el("input", {
+    class: "input",
+    attrs: {
+      placeholder: isWebappPost ? "제작학생 이름" : "이름",
+      value: isEdit ? existing.authorName : lastName,
+      required: isWebappPost,
+    },
+  });
   const titleInput = el("input", { class: "input", attrs: { placeholder: "제목", value: isEdit ? existing.title || "" : "" } });
   const bodyInput = el("textarea", { class: "textarea", attrs: { placeholder: "내용 또는 프롬프트를 입력하세요" } });
   bodyInput.value = isEdit ? existing.body || "" : "";
@@ -971,7 +1000,7 @@ function openCardForm(column, existing = null) {
   }
 
   const body = el("div", { class: "modal__body" }, [
-    el("div", { class: "field" }, [el("label", { text: "이름" }), nameInput]),
+    el("div", { class: "field" }, [el("label", { text: isWebappPost ? "제작학생" : "이름" }), nameInput]),
     el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "내용" }), bodyInput]),
     el("div", { class: "field" }, [
@@ -993,7 +1022,13 @@ function openCardForm(column, existing = null) {
   ]);
 
   saveBtn.addEventListener("click", async () => {
-    const name = nameInput.value.trim() || "익명";
+    const rawName = nameInput.value.trim();
+    if (isWebappPost && !rawName) {
+      showToast("제작학생 이름을 입력해주세요");
+      nameInput.focus();
+      return;
+    }
+    const name = rawName || "익명";
     const hasContent = titleInput.value.trim() || bodyInput.value.trim() || linkInput.value.trim() || pastedFile || (isEdit && existing.fileUrl && !removeExistingFile);
     if (!hasContent) {
       showToast("제목·내용·링크·파일 중 하나는 입력해주세요");

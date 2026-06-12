@@ -287,6 +287,28 @@ body {
 }
 
 /* 갤러리(그리드) 모드 — 웹앱/이미지 쇼케이스용 */
+.webapp-summary {
+  width: min(1100px, 100%);
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+.webapp-summary__count {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
 .column--gallery {
   flex: 0 0 auto;
   width: min(920px, 84vw);
