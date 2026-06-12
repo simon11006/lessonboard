@@ -84,6 +84,26 @@ function countUniqueParticipants(cards) {
   return names.size;
 }
 
+function includesWebappText(value) {
+  return String(value || "").includes("웹앱");
+}
+
+function tabForColumn(column) {
+  return tabsCache.find((tab) => tab.id === column.tabId) || activeTab();
+}
+
+function isWebappPostingContext(column) {
+  const tab = tabForColumn(column);
+  return tab?.type === "webapp" || includesWebappText(tab?.title) || includesWebappText(column?.title);
+}
+
+function authorLabelForColumn(column) {
+  const tab = tabForColumn(column);
+  const titleText = `${tab?.title || ""} ${column?.title || ""}`;
+  if (!isWebappPostingContext(column)) return "이름";
+  return /학생|제작학생/.test(titleText) ? "제작학생" : "작성자";
+}
+
 // ---------- 토스트 ----------
 let toastTimer;
 export function showToast(msg) {
@@ -901,16 +921,15 @@ function openCardDetail(column, card) {
 // ---------- 카드 작성/수정 폼 ----------
 function openCardForm(column, existing = null) {
   const isEdit = !!existing;
-  const isWebappPost =
-    activeTab()?.type === "webapp" ||
-    tabsCache.some((tab) => tab.id === column.tabId && tab.type === "webapp");
+  const isWebappPost = isWebappPostingContext(column);
+  const authorLabel = authorLabelForColumn(column);
   let pastedFile = null;       // 클립보드/파일 입력으로 받은 File
   let removeExistingFile = false;
 
   const nameInput = el("input", {
     class: "input",
     attrs: {
-      placeholder: isWebappPost ? "제작학생 이름" : "이름",
+      placeholder: isWebappPost ? `${authorLabel} 이름` : "이름",
       value: isEdit ? existing.authorName : lastName,
       required: isWebappPost,
     },
@@ -1000,7 +1019,13 @@ function openCardForm(column, existing = null) {
   }
 
   const body = el("div", { class: "modal__body" }, [
-    el("div", { class: "field" }, [el("label", { text: isWebappPost ? "제작학생" : "이름" }), nameInput]),
+    el("div", { class: "field" }, [
+      el("label", {}, [
+        authorLabel,
+        isWebappPost ? el("span", { class: "required-mark", text: "*" }) : null,
+      ]),
+      nameInput,
+    ]),
     el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "내용" }), bodyInput]),
     el("div", { class: "field" }, [
@@ -1024,7 +1049,7 @@ function openCardForm(column, existing = null) {
   saveBtn.addEventListener("click", async () => {
     const rawName = nameInput.value.trim();
     if (isWebappPost && !rawName) {
-      showToast("제작학생 이름을 입력해주세요");
+      showToast(`${authorLabel} 이름을 입력해주세요`);
       nameInput.focus();
       return;
     }
