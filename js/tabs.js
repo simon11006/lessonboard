@@ -48,6 +48,10 @@ export function renameTab(tabId, title) {
   return updateDoc(doc(db, "tabs", tabId), { title: title.trim() });
 }
 
+export function setTabStats(tabId, stats) {
+  return updateDoc(doc(db, "tabs", tabId), stats);
+}
+
 /** 탭 비밀번호 잠금 설정/해제 */
 export function setTabLock(tabId, lockHash) {
   return updateDoc(doc(db, "tabs", tabId), { lockHash });

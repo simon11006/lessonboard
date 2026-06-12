@@ -53,6 +53,10 @@ export function setColumnGalleryCols(columnId, galleryCols) {
   return updateDoc(doc(db, "columns", columnId), { galleryCols });
 }
 
+export function setColumnStats(columnId, stats) {
+  return updateDoc(doc(db, "columns", columnId), stats);
+}
+
 /** 게시판(칼럼) 비밀번호 잠금 설정/해제 */
 export function setColumnLock(columnId, lockHash) {
   return updateDoc(doc(db, "columns", columnId), { lockHash });

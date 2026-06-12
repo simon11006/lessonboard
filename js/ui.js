@@ -8,11 +8,12 @@ import {
   setColumnTab,
   setColumnNewCardPosition,
   setColumnGalleryCols,
+  setColumnStats,
   setColumnLock,
   reorderColumns,
   deleteColumn,
 } from "./columns.js";
-import { subscribeTabs, addTab, renameTab, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
+import { subscribeTabs, addTab, renameTab, setTabStats, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
 import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment } from "./comments.js";
@@ -102,6 +103,36 @@ function authorLabelForColumn(column) {
   const titleText = `${tab?.title || ""} ${column?.title || ""}`;
   if (!isWebappPostingContext(column)) return "이름";
   return /학생|제작학생/.test(titleText) ? "제작학생" : "작성자";
+}
+
+function webappStatsPatch(cardCount, participantCount) {
+  return {
+    cardCount,
+    webappCount: cardCount,
+    participantCount,
+    studentCount: participantCount,
+  };
+}
+
+function statsChanged(target, stats) {
+  return Object.entries(stats).some(([key, value]) => Number(target?.[key] ?? 0) !== value);
+}
+
+async function syncWebappStats(tab, column, cards) {
+  if (!tab || !column) return;
+  const visibleCards = cards.filter((card) => !card.hidden);
+  const stats = webappStatsPatch(visibleCards.length, countUniqueParticipants(visibleCards));
+
+  try {
+    const latestColumn = columnsCache.find((c) => c.id === column.id) || column;
+    const latestTab = tabsCache.find((t) => t.id === tab.id) || tab;
+    const updates = [];
+    if (statsChanged(latestColumn, stats)) updates.push(setColumnStats(column.id, stats));
+    if (statsChanged(latestTab, stats)) updates.push(setTabStats(tab.id, stats));
+    if (updates.length) await Promise.all(updates);
+  } catch (e) {
+    console.warn("웹앱 통계 저장 실패", e);
+  }
 }
 
 // ---------- 토스트 ----------
@@ -411,6 +442,7 @@ function renderWebappTab(tab) {
   const unsub = subscribeCards(col.id, (allCards) => {
     const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
     $(".webapp-summary__count", summary).textContent = String(countUniqueParticipants(cards));
+    syncWebappStats(tab, col, allCards);
     gallery.innerHTML = "";
     if (!cards.length) {
       gallery.appendChild(emptyMsg());
