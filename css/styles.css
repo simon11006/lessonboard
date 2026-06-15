@@ -317,8 +317,8 @@ body {
 }
 .column__body--gallery {
   display: grid;
-  /* 각 카드 너비 = 목록 게시판 카드와 동일(--col-width - 좌우 패딩 26px) */
-  grid-template-columns: repeat(var(--gallery-cols, 3), calc(var(--col-width) - 26px));
+  /* 각 카드 너비 = 목록 게시판 카드와 동일(--col-width - 좌우 패딩 26 - 칼럼 테두리 2) */
+  grid-template-columns: repeat(var(--gallery-cols, 3), calc(var(--col-width) - 28px));
   gap: 13px;
   align-content: start;
 }
