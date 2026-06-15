@@ -59,7 +59,11 @@ service cloud.firestore {
       match /cards/{cardId} {
         allow read: if true;
         allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
-        allow update: if isTeacher() || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+        // 수정: 강사·본인. 단 댓글 수(commentCount)만 바꾸는 건 누구나 허용
+        // (다른 사람 글에 댓글을 달면 그 글의 댓글 수를 갱신해야 하므로)
+        allow update: if isTeacher()
+          || (isSignedIn() && resource.data.authorUid == request.auth.uid)
+          || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount']));
         allow delete: if isTeacher() || (isSignedIn() && resource.data.authorUid == request.auth.uid);
 
         // 댓글

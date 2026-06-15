@@ -4,6 +4,7 @@ import {
   doc,
   addDoc,
   deleteDoc,
+  updateDoc,
   onSnapshot,
   query,
   orderBy,
@@ -14,6 +15,12 @@ import { getUid } from "./auth.js";
 
 const commentsCol = (columnId, cardId) =>
   collection(db, "columns", columnId, "cards", cardId, "comments");
+
+/** 카드의 댓글 수(commentCount) 보정. 댓글 상세를 열 때 실제 개수로 맞춘다.
+ *  내용 필드는 안 건드리고 commentCount 만 바꾸므로 규칙상 인증 사용자면 허용. */
+export function setCommentCount(columnId, cardId, n) {
+  return updateDoc(doc(db, "columns", columnId, "cards", cardId), { commentCount: n });
+}
 
 /** 댓글 실시간 구독 (오래된 순). cb(comments[]) */
 export function subscribeComments(columnId, cardId, cb) {

@@ -16,7 +16,7 @@ import {
 import { subscribeTabs, addTab, renameTab, setTabStats, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
 import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
 import { downloadBackup } from "./export.js";
-import { subscribeComments, addComment, deleteComment } from "./comments.js";
+import { subscribeComments, addComment, deleteComment, setCommentCount } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
 import {
   isTeacher,
@@ -43,6 +43,30 @@ function el(tag, opts = {}, children = []) {
     node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
   }
   return node;
+}
+
+// 본문 텍스트 안의 URL을 클릭 가능한 링크(새 창)로 바꿔 parent에 채워 넣는다.
+// 텍스트 노드로 넣으므로 줄바꿈(pre-wrap)·XSS 안전성 모두 유지된다.
+const URL_RE = /(https?:\/\/[^\s<]+)/g;
+function appendLinkified(parent, text) {
+  const str = String(text ?? "");
+  let last = 0, m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(str))) {
+    let url = m[0], trail = "";
+    const tm = url.match(/[)\].,!?;:]+$/); // URL 뒤에 붙은 문장부호는 링크에서 제외
+    if (tm) { trail = tm[0]; url = url.slice(0, -trail.length); }
+    if (m.index > last) parent.appendChild(document.createTextNode(str.slice(last, m.index)));
+    parent.appendChild(el("a", {
+      class: "linkify",
+      text: url,
+      attrs: { href: url, target: "_blank", rel: "noopener noreferrer" },
+      on: { click: (e) => e.stopPropagation() }, // 카드 클릭(상세 열기) 대신 링크만 열기
+    }));
+    if (trail) parent.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < str.length) parent.appendChild(document.createTextNode(str.slice(last)));
 }
 
 function escapeHtml(s) {
@@ -576,8 +600,11 @@ function buildCard(column, card, cards = [], index = 0) {
     ]));
   }
 
-  if (card.body)
-    children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
+  if (card.body) {
+    const bodyP = el("p", { class: "card__body card__body--clamp" });
+    appendLinkified(bodyP, card.body);
+    children.push(bodyP);
+  }
 
   if (card.fileType === "image" && card.fileUrl) {
     children.push(
@@ -609,12 +636,20 @@ function buildCard(column, card, cards = [], index = 0) {
     actions.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: (e) => { e.stopPropagation(); confirmDeleteCard(column, card); } } }));
   }
 
-  const footer = el("div", { class: "card__footer" }, [
+  const cmtCount = card.commentCount || 0;
+  const meta = el("div", { class: "card__meta" }, [
     el("span", { class: "card__author", text: card.authorName || "익명" }),
     el("span", { class: "card__time", text: fmtTime(card.createdAt) }),
-    el("span", { class: "card__spacer" }),
-    el("span", { class: "card__comments-count", text: "💬" }),
-    el("div", { class: "card__actions" }, actions),
+    el("span", {
+      class: "card__comments-count" + (cmtCount ? " card__comments-count--has" : ""),
+      text: cmtCount ? `💬 ${cmtCount}` : "💬",
+      attrs: { title: cmtCount ? `댓글 ${cmtCount}개` : "댓글" },
+    }),
+  ]);
+  // footer는 자동 줄바꿈: 도구가 한 줄에 안 들어가면 아래로 내려가 카드 밖으로 안 나감
+  const footer = el("div", { class: "card__footer" }, [
+    meta,
+    actions.length ? el("div", { class: "card__actions" }, actions) : null,
   ]);
   children.push(footer);
 
@@ -877,7 +912,9 @@ function openCardDetail(column, card) {
 
   if (card.body) {
     const bodyWrap = el("div");
-    bodyWrap.appendChild(el("div", { class: "detail__body", text: card.body }));
+    const detailBody = el("div", { class: "detail__body" });
+    appendLinkified(detailBody, card.body);
+    bodyWrap.appendChild(detailBody);
     if (card.isPrompt)
       bodyWrap.appendChild(
         el("button", { class: "btn btn--ghost btn--sm", attrs: { style: "margin-top:10px" }, text: "📋 복사", on: { click: () => copyText(card.body) } })
@@ -938,6 +975,10 @@ function openCardDetail(column, card) {
 
   // 댓글 실시간 구독
   const unsub = subscribeComments(column.id, card.id, (comments) => {
+    // 카드의 댓글 수 표시값을 실제 개수로 보정(추가/삭제 시 모두의 footer에 반영)
+    if ((card.commentCount || 0) !== comments.length) {
+      setCommentCount(column.id, card.id, comments.length).catch(() => {});
+    }
     list.innerHTML = "";
     if (!comments.length) {
       list.appendChild(el("div", { class: "comments__empty", text: "첫 댓글을 남겨보세요." }));

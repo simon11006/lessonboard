@@ -76,6 +76,7 @@ export async function addCard(columnId, data) {
     linkPreview: data.linkPreview || null,
     authorName: data.authorName?.trim() || "익명",
     authorUid: getUid(),
+    commentCount: 0,
     order,
     createdAt: serverTimestamp(),
   });
@@ -151,6 +152,7 @@ export async function copyCardTo(sourceColumnId, card, targetColumnId, { ownFile
     hidden: !!card.hidden,
     authorName: card.authorName || "익명",
     authorUid: getUid(),
+    commentCount: withComments ? (card.commentCount || 0) : 0,
     order,
     createdAt: serverTimestamp(),
   });
