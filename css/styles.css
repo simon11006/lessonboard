@@ -240,12 +240,14 @@ body {
 @keyframes colIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 .column__header {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; gap: 8px;
   padding: 14px 15px;
   background: linear-gradient(180deg, var(--accent-tint) 0%, rgba(239, 245, 240, 0.35) 100%);
   border-bottom: 1px solid var(--line);
   border-radius: var(--radius) var(--radius) 0 0;
 }
+.column__header-main { display: flex; align-items: center; gap: 8px; }
+.column__toolbar { display: flex; justify-content: flex-end; }
 .column__titlewrap {
   display: flex; align-items: center; gap: 7px;
   flex: 0 1 auto; min-width: 0;

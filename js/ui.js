@@ -504,11 +504,16 @@ function buildColumn(column, index, total) {
     countEl,
     permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "강사" }) : null,
   ]);
-  const header = el("div", { class: "column__header" }, [
+  // 1줄차: 제목 + 게시글 수 + 글쓰기(오른쪽 끝)
+  const headerMain = el("div", { class: "column__header-main" }, [
     titleWrap,
     el("span", { class: "column__spacer" }),
-    teacher ? el("div", { class: "column__tools" }, tools) : null,
-    headerAddBtn, // 헤더 오른쪽 끝 글쓰기
+    headerAddBtn,
+  ]);
+  // 2줄차(강사): 잠금/설정/삭제 도구 — 글쓰기 아래로 내려 제목이 한 줄로 나오게
+  const header = el("div", { class: "column__header" }, [
+    headerMain,
+    teacher ? el("div", { class: "column__toolbar" }, [el("div", { class: "column__tools" }, tools)]) : null,
   ]);
 
   const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
