@@ -35,7 +35,9 @@
   --radius: 16px;
   --radius-md: 12px;
   --radius-sm: 9px;
-  --col-width: 300px;
+  /* 한 화면에 게시판 6개가 들어오도록 폭을 화면에 맞춰 계산
+     (board 좌우 패딩 52 + 컬럼 사이 간격 5×18 = 142, 세로 스크롤바 ~18 여유) */
+  --col-width: clamp(248px, calc((100vw - 160px) / 6), 340px);
 
   --font-sans: "Pretendard", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: "Noto Serif KR", "Pretendard", serif;
@@ -229,19 +231,20 @@ body {
   flex: 0 0 var(--col-width);
   width: var(--col-width);
   display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   animation: colIn 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 @keyframes colIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-/* 헤더만 박스로 감싸고, 카드들은 그 아래로 (바깥 컬럼 패널 없음) */
 .column__header {
   display: flex; align-items: center; gap: 8px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-  background: linear-gradient(180deg, var(--accent-tint) 0%, rgba(239, 245, 240, 0.55) 100%);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  padding: 14px 15px;
+  background: linear-gradient(180deg, var(--accent-tint) 0%, rgba(239, 245, 240, 0.35) 100%);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .column__titlewrap {
   display: flex; align-items: center; gap: 7px;
@@ -276,10 +279,11 @@ body {
 
 .column__body {
   flex: 1 1 auto;
+  padding: 13px;
   display: flex; flex-direction: column; gap: 11px;
 }
 .column__body .board__empty {
-  margin: 2px auto 10px; font-size: 12.5px;
+  margin: 6px auto 10px; font-size: 12.5px;
 }
 
 /* 갤러리(그리드) 모드 — 웹앱/이미지 쇼케이스용 */
@@ -380,7 +384,7 @@ body {
 .tab-lock-icon { font-size: 11px; margin-left: 5px; opacity: 0.8; }
 .column__locked {
   display: flex; align-items: center; justify-content: center; text-align: center;
-  margin: 0 0 13px; padding: 30px 14px;
+  margin: 13px; padding: 30px 14px;
   background: var(--surface-2); border: 1px dashed var(--line-strong);
   border-radius: 9px; color: var(--ink-soft); font-size: 12.5px; cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
