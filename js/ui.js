@@ -548,9 +548,8 @@ function buildColumn(column, index, total) {
   if (teacher) attachColumnHeaderDrag(header, colEl, column);
 
   if (isGallery) {
-    const cols = column.galleryCols || 3;
-    body.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-    colEl.style.width = `min(90vw, ${cols * 250}px)`;
+    // 갤러리: 칸 수만 지정. 각 카드 너비는 목록 게시판 카드와 동일하게 CSS가 계산
+    colEl.style.setProperty("--gallery-cols", column.galleryCols || 3);
   }
 
   // 게시판 잠금: 비밀번호 입력 전엔 내용 숨김
