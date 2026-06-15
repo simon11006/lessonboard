@@ -31,32 +31,16 @@ export function canManage(authorUid) {
   return isMine(authorUid) || teacherMode;
 }
 
-const TEACHER_KEY = "vibe_board_teacher";
-
-/** 강사 모드 on/off (비밀번호 검증은 js/config.js + ui.js 에서 처리)
- *  새로고침에도 유지되도록 탭 세션(sessionStorage)에 기록한다.
- *  (탭을 닫으면 자동 해제 — localStorage 가 아니라 sessionStorage 사용) */
+/** 강사 모드 on/off.
+ *  실제 강사 여부는 Firebase Auth(강사 계정 로그인)로 판별되며, 이 함수는
+ *  인증 상태 리스너(app.js)가 그 결과를 UI 상태로 반영할 때 호출된다.
+ *  Firebase 세션 지속성(browserSession)이 새로고침 유지를 담당하므로
+ *  별도의 sessionStorage 저장은 두지 않는다. */
 export function setTeacher(on) {
-  teacherMode = !!on;
-  try {
-    if (teacherMode) sessionStorage.setItem(TEACHER_KEY, "1");
-    else sessionStorage.removeItem(TEACHER_KEY);
-  } catch (_) {}
+  const next = !!on;
+  if (next === teacherMode) return;
+  teacherMode = next;
   notify();
-}
-
-export function exitTeacherMode() {
-  setTeacher(false);
-}
-
-/** 새로고침 후 강사 모드 복원 (앱 부팅 시 호출) */
-export function restoreTeacher() {
-  try {
-    if (sessionStorage.getItem(TEACHER_KEY) === "1") {
-      teacherMode = true;
-      notify();
-    }
-  } catch (_) {}
 }
 
 /** 강사 모드 변경 구독 (UI 갱신용) */

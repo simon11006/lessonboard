@@ -21,11 +21,10 @@ import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
 import {
   isTeacher,
   canManage,
-  setTeacher,
-  exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
-import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, subscribeSiteInfo, setSiteInfo, sha256 } from "./config.js";
+import { teacherSignIn, teacherSignOut, teacherChangePassword } from "./firebase.js";
+import { isTeacherPasswordSet, markTeacherSetup, subscribeSiteInfo, setSiteInfo, sha256 } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -616,7 +615,8 @@ function buildCard(column, card, cards = [], index = 0) {
 
   const cardEl = el("div", {
     class: "card" + (card.hidden ? " card--hidden" : ""),
-    attrs: { draggable: "true", "data-card-id": card.id },
+    // 카드 순서 변경(드래그)은 모든 카드의 order 를 바꾸므로 강사만 가능
+    attrs: { draggable: isTeacher() ? "true" : null, "data-card-id": card.id },
     on: {
       click: () => openCardDetail(column, card),
       dragstart: (e) => {
@@ -1449,31 +1449,25 @@ async function openTeacherLogin() {
     return;
   }
 
-  // 최초 1회: 비밀번호 없이 입장 → 곧바로 비밀번호 설정 요구
+  // 최초 1회: 비밀번호 설정(= 강사 계정 생성)
   if (!hasPassword) {
-    setTeacher(true);
-    showToast("강사 모드로 입장했습니다. 비밀번호를 설정해주세요.");
     openSetPasswordModal({ firstTime: true });
     return;
   }
 
-  // 이후: 비밀번호 입력
+  // 이후: 비밀번호 입력 → 강사 계정으로 로그인 (강사 여부는 인증 리스너가 반영)
   const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "강사 비밀번호" } });
   const okBtn = el("button", { class: "btn btn--primary", text: "확인" });
   const tryLogin = async () => {
     okBtn.disabled = true;
     try {
-      if (await verifyTeacherPassword(pwInput.value)) {
-        setTeacher(true);
-        showToast("강사 모드로 전환했습니다");
-        closeModal();
-      } else {
-        showToast("비밀번호가 올바르지 않습니다");
-        pwInput.value = "";
-        pwInput.focus();
-      }
+      await teacherSignIn(pwInput.value);
+      showToast("강사 모드로 전환했습니다");
+      closeModal();
     } catch (e) {
-      showToast("확인 실패: " + e.message);
+      showToast(e.code === "wrong-password" ? "비밀번호가 올바르지 않습니다" : "확인 실패: " + e.message);
+      pwInput.value = "";
+      pwInput.focus();
     } finally {
       okBtn.disabled = false;
     }
@@ -1499,13 +1493,19 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   const save = async () => {
     const a = pw1.value.trim();
     const b = pw2.value.trim();
-    if (a.length < 4) return showToast("비밀번호는 4자 이상으로 정해주세요");
+    if (a.length < 6) return showToast("비밀번호는 6자 이상으로 정해주세요");
     if (a !== b) return showToast("두 비밀번호가 일치하지 않습니다");
     saveBtn.disabled = true;
     saveBtn.textContent = "저장 중…";
     try {
-      await setTeacherPassword(a);
-      showToast("비밀번호를 저장했습니다");
+      if (firstTime) {
+        await teacherSignIn(a);     // 강사 계정 생성 + 로그인
+        await markTeacherSetup();   // 다음부턴 '로그인' 화면을 보여주도록 마커 기록
+        showToast("강사 비밀번호를 설정했습니다");
+      } else {
+        await teacherChangePassword(a);
+        showToast("비밀번호를 변경했습니다");
+      }
       closeModal();
     } catch (e) {
       showToast("저장 실패: " + e.message);
@@ -1523,7 +1523,7 @@ function openSetPasswordModal({ firstTime = false } = {}) {
     modalHeader(firstTime ? "강사 비밀번호 설정" : "강사 비밀번호 변경"),
     el("div", { class: "modal__body" }, [
       firstTime
-        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호는 다음부터 강사 모드 입장에 사용됩니다. Firestore에 안전하게(해시) 저장돼요." })
+        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호로 강사 전용 계정이 만들어지고, 다음부터 강사 모드 입장에 사용됩니다. (6자 이상)" })
         : null,
       el("div", { class: "field" }, [el("label", { text: "새 비밀번호" }), pw1]),
       el("div", { class: "field" }, [el("label", { text: "비밀번호 확인" }), pw2]),
@@ -1620,8 +1620,11 @@ export function initHeader() {
 
   modeBtn.addEventListener("click", () => {
     if (isTeacher()) {
-      exitTeacherMode();
-      showToast("강사 모드를 종료했습니다");
+      modeBtn.disabled = true;
+      teacherSignOut()
+        .then(() => showToast("강사 모드를 종료했습니다"))
+        .catch((e) => showToast("종료 실패: " + e.message))
+        .finally(() => { modeBtn.disabled = false; });
     } else {
       openTeacherLogin();
     }

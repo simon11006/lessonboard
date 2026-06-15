@@ -1,17 +1,21 @@
 // 앱 부트스트랩
-import { initAuth } from "./firebase.js";
-import { setUid, restoreTeacher } from "./auth.js";
+import { startAuth, isTeacherUser } from "./firebase.js";
+import { setUid, setTeacher } from "./auth.js";
 import { ensureDefaultTab } from "./tabs.js";
 import { initHeader, startBoard, showToast } from "./ui.js";
 
 async function main() {
   initHeader();
+  startBoard();
   try {
-    const uid = await initAuth();
+    // 인증 상태가 바뀔 때마다(로그인/강사 전환/새로고침) uid·강사 여부를 갱신.
+    // 강사 여부는 Firebase 계정(강사 이메일 로그인)으로 서버에서 판별된다.
+    const uid = await startAuth((user) => {
+      setUid(user.uid);
+      setTeacher(isTeacherUser(user));
+    });
     setUid(uid);
     ensureDefaultTab().catch((e) => console.warn("기본 탭 생성 생략:", e.message));
-    startBoard();
-    restoreTeacher(); // 새로고침해도 강사 모드 유지
   } catch (err) {
     console.error("초기화 실패:", err);
     document.querySelector("#board").innerHTML =

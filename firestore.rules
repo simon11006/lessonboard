@@ -2,17 +2,35 @@ rules_version = '2';
 
 // 바이브코딩 연수 게시판 Firestore 보안 규칙
 // ---------------------------------------------------------------------------
-// 내부 연수 전용 게시판입니다. URL을 연수생에게만 공유하는 방식으로 접근을
-// 통제하고, 규칙은 단순하게 전체 허용으로 둡니다. (로그인이 없는 익명 구조라
-// 작성자/강사 신원을 규칙 단에서 검증할 수 없어 소프트 보호로 운영)
-//  - 강사 모드: UI 레벨 비밀번호 보호 (config/teacher 해시)
-//  - 글 잠금/숨김: UI 레벨 처리
+// 인증 구조
+//  - 수강생: 익명 로그인 (창을 닫기 전까지 같은 uid 유지)
+//  - 강사  : 강사 전용 계정(이메일/비밀번호)으로 로그인 → 서버가 식별 가능
+//            (이메일은 js/firebase.js 의 TEACHER_EMAIL 과 반드시 일치)
+//
+// 글(카드)·댓글 권한
+//  - 읽기            : 누구나
+//  - 작성            : 로그인 사용자(주소를 아는 누구나), 본인 authorUid 강제
+//  - 수정/삭제(카드) : 강사 또는 본인 글만 (창을 닫으면 익명 uid 소멸 → 불가)
+//  - 삭제(댓글)      : 강사 / 댓글 작성자 / 글쓴이(자기 글의 댓글 정리용)
+//
+// 탭·게시판·설정값은 강사가 UI에서 관리하지만, 웹앱 통계 자동 기록 등으로
+// 일반 사용자도 써야 하는 필드가 있어 "인증 사용자 쓰기"(소프트)로 둔다.
 // ---------------------------------------------------------------------------
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 기존 컬렉션 (개인 앱 · 학습노트)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isTeacher() {
+      return request.auth != null && request.auth.token.email == 'teacher@lessonboard.app';
+    }
+    function ownsCard(columnId, cardId) {
+      return get(/databases/$(database)/documents/columns/$(columnId)/cards/$(cardId)).data.authorUid == request.auth.uid;
+    }
+
+    // 기존 컬렉션 (개인 앱 · 학습노트) — 레거시, 전체 허용 유지
     match /resources/{resourceId} {
       allow read, write: if true;
     }
@@ -20,19 +38,37 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // 연수 게시판 컬렉션
+    // 사이트 설정 / 강사 설정 마커
     match /config/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
     }
+
+    // 탭(상위 묶음)
     match /tabs/{tabId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
     }
+
+    // 게시판(칼럼)
     match /columns/{columnId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn();
+
+      // 글(카드)
       match /cards/{cardId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
+        allow update: if isTeacher() || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+        allow delete: if isTeacher() || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+
+        // 댓글
         match /comments/{commentId} {
-          allow read, write: if true;
+          allow read: if true;
+          allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
+          allow delete: if isTeacher()
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid)
+            || (isSignedIn() && ownsCard(columnId, cardId));
         }
       }
     }
