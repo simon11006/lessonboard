@@ -1037,7 +1037,7 @@ function openCardForm(column, existing = null) {
   const authorLabel = authorLabelForColumn(column);
   const MAX_FILES = 3;
   // 첨부 허용 확장자 (이미지는 MIME 으로 별도 허용)
-  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "md", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv", "zip", "skll"];
+  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "md", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv", "zip", "skill"];
   const newFiles = [];                                   // 새로 추가한 File[]
   const keptFiles = isEdit ? cardFiles(existing).slice() : []; // 유지 중인 기존 첨부 엔트리[]
   const removedPaths = [];                               // 삭제 예정 기존 첨부 경로[]
@@ -1078,7 +1078,7 @@ function openCardForm(column, existing = null) {
     attrs: {
       type: "file",
       multiple: true,
-      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv,.zip,.skll",
+      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv,.zip,.skill",
       style: "display:none",
     },
   });
