@@ -572,10 +572,10 @@ function buildColumn(column, index, total) {
 function buildCard(column, card, cards = [], index = 0) {
   const children = [];
   const isLocked = !!card.lockHash;
+  const isEffectivelyLocked = isLocked && !isTeacher() && !unlockedCards.has(card.id);
 
   if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 수강생에게 숨김" }));
-  // 프롬프트: 태그 + 복사 버튼을 한 줄에 (빈 공간 절약)
-  if (card.isPrompt) {
+  if (card.isPrompt && !isEffectivelyLocked) {
     const tagRow = [el("span", { class: "tag", attrs: { style: "margin:0" }, text: "프롬프트" })];
     if (card.body) {
       tagRow.push(el("button", {
@@ -593,32 +593,33 @@ function buildCard(column, card, cards = [], index = 0) {
     ]));
   }
 
-  if (card.body) {
-    const bodyP = el("p", { class: "card__body card__body--clamp" });
-    appendLinkified(bodyP, card.body);
-    // 내용이 잘렸을 때만(렌더 후 실제 오버플로 측정) '더보기' 안내를 노출한다.
-    const moreHint = el("span", { class: "card__more-hint", text: "⋯ 더보기" });
-    const bodyWrap = el("div", { class: "card__body-wrap" }, [bodyP, moreHint]);
-    children.push(bodyWrap);
-    requestAnimationFrame(() => {
-      if (bodyP.scrollHeight - bodyP.clientHeight > 2) bodyWrap.classList.add("card__body-wrap--more");
-    });
-  }
+  if (!isEffectivelyLocked) {
+    if (card.body) {
+      const bodyP = el("p", { class: "card__body card__body--clamp" });
+      appendLinkified(bodyP, card.body);
+      const moreHint = el("span", { class: "card__more-hint", text: "⋯ 더보기" });
+      const bodyWrap = el("div", { class: "card__body-wrap" }, [bodyP, moreHint]);
+      children.push(bodyWrap);
+      requestAnimationFrame(() => {
+        if (bodyP.scrollHeight - bodyP.clientHeight > 2) bodyWrap.classList.add("card__body-wrap--more");
+      });
+    }
 
-  if (card.fileType === "image" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
-    );
-  } else if (card.fileType === "pdf" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__file" }, [
-        el("span", { class: "card__file-icon", text: "📄" }),
-        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-      ])
-    );
-  }
+    if (card.fileType === "image" && card.fileUrl) {
+      children.push(
+        el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
+      );
+    } else if (card.fileType === "pdf" && card.fileUrl) {
+      children.push(
+        el("div", { class: "card__file" }, [
+          el("span", { class: "card__file-icon", text: "📄" }),
+          el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
+        ])
+      );
+    }
 
-  if (card.linkUrl) children.push(buildLinkPreview(card));
+    if (card.linkUrl) children.push(buildLinkPreview(card));
+  }
 
   // footer
   const actions = [];
@@ -1139,7 +1140,7 @@ function openCardForm(column, existing = null) {
     el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "내용" }), bodyInput]),
     el("div", { class: "field" }, [
-      el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "프롬프트로 표시 (복사 버튼 추가)" })]),
+      el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "복사버튼 추가" })]),
     ]),
     el("div", { class: "field" }, [
       el("label", { text: "링크" }),
