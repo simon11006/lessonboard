@@ -919,6 +919,14 @@ function openCardDetail(column, card) {
       el("span", { text: card.authorName || "익명" }),
       el("span", { text: "·" }),
       el("span", { text: fmtTime(card.createdAt) }),
+      // 강사·본인: 상세에서 바로 수정
+      canManage(card.authorUid)
+        ? el("button", {
+            class: "btn btn--ghost btn--sm detail__edit",
+            text: "✎ 수정",
+            on: { click: () => { closeModal(); openCardForm(column, card); } },
+          })
+        : null,
     ])
   );
 
@@ -1032,7 +1040,7 @@ function openCardForm(column, existing = null) {
     },
   });
   const titleInput = el("input", { class: "input", attrs: { placeholder: "제목", value: isEdit ? existing.title || "" : "" } });
-  const bodyInput = el("textarea", { class: "textarea", attrs: { placeholder: "내용 또는 프롬프트를 입력하세요" } });
+  const bodyInput = el("textarea", { class: "textarea textarea--lg", attrs: { placeholder: "내용 또는 프롬프트를 입력하세요" } });
   bodyInput.value = isEdit ? existing.body || "" : "";
   const promptCheck = el("input", { attrs: { type: "checkbox", id: "is-prompt" } });
   if (isEdit && existing.isPrompt) promptCheck.checked = true;
@@ -1201,7 +1209,7 @@ function openCardForm(column, existing = null) {
     }
   });
 
-  const overlay = openModal([modalHeader(isEdit ? "글 수정" : "글쓰기"), body, footer]);
+  const overlay = openModal([modalHeader(isEdit ? "글 수정" : "글쓰기"), body, footer], { wide: true });
   overlay._cleanup = () => document.removeEventListener("paste", onPaste);
 }
 
