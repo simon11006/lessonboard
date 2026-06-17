@@ -678,8 +678,15 @@ function buildLinkPreview(card) {
   const href = normalizeUrl(card.linkUrl);
   const stop = (e) => e.stopPropagation();
   if (p) {
+    // 이미지(사이트 첫 화면 썸네일)가 있으면 첨부파일처럼 보이는 제목/설명/주소 블록 없이
+    // 미리보기 첫 화면만 보여준다.
+    if (p.image) {
+      return el("a", { class: "link-preview link-preview--imageonly", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
+        el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } }),
+      ]);
+    }
+    // 이미지가 없을 때만 텍스트 메타 정보로 폴백.
     return el("a", { class: "link-preview", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
-      p.image ? el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } }) : null,
       el("div", { class: "link-preview__meta" }, [
         el("p", { class: "link-preview__title", text: p.title || href }),
         p.description ? el("p", { class: "link-preview__desc", text: p.description }) : null,
