@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="연수 게시판">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f6d54"/>
+      <stop offset="1" stop-color="#255a44"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- 게시판(클립보드) 본체 -->
+  <rect x="16" y="14" width="32" height="38" rx="5" fill="#f6f3ec"/>
+  <!-- 상단 집게 -->
+  <rect x="26" y="9" width="12" height="9" rx="3" fill="#e6efe9" stroke="#255a44" stroke-width="2.5"/>
+  <!-- 게시글 라인들 -->
+  <rect x="22" y="27" width="20" height="3.4" rx="1.7" fill="#2f6d54"/>
+  <rect x="22" y="35" width="20" height="3.4" rx="1.7" fill="#9bbdab"/>
+  <rect x="22" y="43" width="13" height="3.4" rx="1.7" fill="#9bbdab"/>
+</svg>
