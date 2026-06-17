@@ -1054,6 +1054,15 @@ function openCardForm(column, existing = null) {
     previewCheck.checked = true;
   }
 
+  // 강사 전용: 비밀번호 잠금 설정
+  const isAlreadyLocked = isEdit && !!existing.lockHash;
+  const lockInput = isTeacher()
+    ? el("input", { class: "input", attrs: { type: "password", placeholder: isAlreadyLocked ? "새 비밀번호 입력 시 변경, 비우면 기존 잠금 유지" : "비밀번호 (선택, 비우면 잠금 없음)" } })
+    : null;
+  const removeLockCheck = isTeacher() && isAlreadyLocked
+    ? el("input", { attrs: { type: "checkbox", id: "remove-lock" } })
+    : null;
+
   // 파일: 클립보드 붙여넣기 + 파일 선택
   const fileInput = el("input", { attrs: { type: "file", accept: "image/*,application/pdf", style: "display:none" } });
   const chosen = el("div", { class: "file-chosen" });
@@ -1149,6 +1158,14 @@ function openCardForm(column, existing = null) {
       el("p", { class: "hint", text: "미리보기를 켜면 사이트 첫 화면 썸네일이 생성됩니다 (실패 시 단순 링크)." }),
     ]),
     el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷, 최대 20MB)" }), pasteZone, fileInput, chosen]),
+    lockInput ? el("div", { class: "field" }, [
+      el("label", { text: isAlreadyLocked ? "🔒 비밀번호 잠금 (설정됨)" : "🔒 비밀번호 잠금" }),
+      lockInput,
+      removeLockCheck ? el("div", { class: "checkbox-row", attrs: { style: "margin-top:8px" } }, [
+        removeLockCheck,
+        el("label", { attrs: { for: "remove-lock" }, text: "잠금 해제" }),
+      ]) : null,
+    ]) : null,
   ]);
 
   const saveBtn = el("button", { class: "btn btn--primary", text: isEdit ? "수정" : "등록" });
@@ -1193,15 +1210,30 @@ function openCardForm(column, existing = null) {
         file: pastedFile || undefined,
       };
 
+      let savedId;
       if (isEdit) {
         payload.removeFile = removeExistingFile;
         await updateCard(column.id, existing.id, payload);
+        savedId = existing.id;
         showToast("수정했습니다");
       } else {
         payload.newCardPosition = column.newCardPosition; // 칼럼 설정에 따라 위/아래 삽입
-        await addCard(column.id, payload);
+        const ref = await addCard(column.id, payload);
+        savedId = ref.id;
         showToast("등록했습니다");
       }
+
+      // 강사 잠금 처리
+      if (lockInput) {
+        if (removeLockCheck?.checked) {
+          await setCardLock(column.id, savedId, null);
+          unlockedCards.delete(savedId);
+        } else if (lockInput.value.trim()) {
+          await setCardLock(column.id, savedId, await sha256(lockInput.value.trim()));
+          unlockedCards.delete(savedId);
+        }
+      }
+
       closeModal();
     } catch (e) {
       showToast("저장 실패: " + e.message);
