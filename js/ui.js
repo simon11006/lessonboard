@@ -816,6 +816,12 @@ function selectTab(tab) {
   renderAll();
 }
 
+// 제목/로고 클릭 → 홈(첫 번째 탭)으로 이동
+function goHome() {
+  if (!tabsCache.length) return;
+  selectTab(tabsCache[0]);
+}
+
 // 잠긴 글 열기 — 비밀번호 입력
 function openCardUnlock(column, card) {
   const pw = el("input", { class: "input", attrs: { type: "password", placeholder: "비밀번호" } });
@@ -1650,6 +1656,15 @@ export function initHeader() {
     if (kicker) kickerEl.textContent = kicker;
   });
   editTitleBtn.addEventListener("click", openEditTitleModal);
+
+  // 제목·로고를 누르면 홈(첫 탭)으로 돌아간다.
+  const logoEl = $(".app-header__logo");
+  [titleEl, logoEl].forEach((elm) => {
+    if (!elm) return;
+    elm.classList.add("is-home-link");
+    elm.setAttribute("title", "홈으로");
+    elm.addEventListener("click", goHome);
+  });
 
   // 안내 배너 (한 번 닫으면 기억)
   const banner = $("#info-banner");
