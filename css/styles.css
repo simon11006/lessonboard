@@ -215,13 +215,20 @@ body {
 }
 .webapp-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(244px, 1fr));
-  gap: 16px;
+  /* 웹앱 탭은 카드를 더 넓게 → 컴퓨터 화면 비율 미리보기가 잘 보이도록 */
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
   align-content: start;
 }
 .webapp-gallery .board__empty { grid-column: 1 / -1; padding: 40px 0; }
-.webapp-gallery .card__media img,
-.webapp-gallery .link-preview__img { height: 160px; }
+.webapp-gallery .card__media img { height: 200px; }
+/* 미리보기 썸네일은 컴퓨터 화면(16:10) 비율로 첫 화면이 잘리지 않게 표시 */
+.webapp-gallery .link-preview__img {
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top;
+}
 @media (max-width: 720px) {
   .board--webapp { padding: 16px; }
 }

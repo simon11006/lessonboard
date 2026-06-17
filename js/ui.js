@@ -1032,7 +1032,12 @@ function openCardForm(column, existing = null) {
   if (isEdit && existing.isPrompt) promptCheck.checked = true;
   const linkInput = el("input", { class: "input", attrs: { placeholder: "https:// 참고 사이트 · 실습 사이트 주소 (선택)", value: isEdit ? existing.linkUrl || "" : "" } });
   const previewCheck = el("input", { attrs: { type: "checkbox", id: "show-preview" } });
-  if (isEdit && existing.linkPreview) previewCheck.checked = true;
+  // 웹앱 게시용 탭에서는 새 글 작성 시 미리보기 표시를 기본으로 켠다.
+  if (isEdit) {
+    if (existing.linkPreview) previewCheck.checked = true;
+  } else if (isWebappPost) {
+    previewCheck.checked = true;
+  }
 
   // 파일: 클립보드 붙여넣기 + 파일 선택
   const fileInput = el("input", { attrs: { type: "file", accept: "image/*,application/pdf", style: "display:none" } });
