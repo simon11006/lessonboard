@@ -453,12 +453,7 @@ function renderWebappTab(tab) {
   const board = boardEl();
   const col = columnsCache.find((c) => c.tabId === tab.id);
 
-  const summary = el("div", { class: "webapp-summary" }, [
-    el("span", { class: "webapp-summary__label", text: "참여학생" }),
-    el("span", { class: "webapp-summary__count", text: "0" }),
-  ]);
   const gallery = el("div", { class: "webapp-gallery" });
-  board.appendChild(summary);
   board.appendChild(gallery);
 
   const emptyMsg = () => el("div", { class: "board__empty", text: "아직 올라온 웹앱이 없습니다. ‘＋ 글쓰기’로 첫 작품을 올려보세요." });
@@ -471,7 +466,6 @@ function renderWebappTab(tab) {
   attachColumnDnD(gallery, col);
   const unsub = subscribeCards(col.id, (allCards) => {
     const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
-    $(".webapp-summary__count", summary).textContent = String(countUniqueParticipants(cards));
     syncWebappStats(tab, col, allCards);
     gallery.innerHTML = "";
     if (!cards.length) {
