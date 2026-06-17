@@ -1,6 +1,7 @@
 // 게시판 전체 백업 내보내기 (강사 모드)
 import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { db } from "./firebase.js";
+import { cardFiles } from "./cards.js";
 
 function tsToIso(ts) {
   if (!ts) return null;
@@ -27,9 +28,7 @@ export async function buildBackup() {
         title: card.title,
         body: card.body,
         isPrompt: card.isPrompt,
-        fileUrl: card.fileUrl,
-        fileType: card.fileType,
-        fileName: card.fileName,
+        files: cardFiles(card).map((f) => ({ url: f.url, type: f.type, name: f.name })),
         linkUrl: card.linkUrl,
         author: card.authorName,
         createdAt: tsToIso(card.createdAt),

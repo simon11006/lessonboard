@@ -32,15 +32,24 @@ export function subscribeCards(columnId, cb) {
   });
 }
 
+/** 첨부 종류 판별: 이미지 / PDF / 기타 문서(doc) */
+function detectFileType(file) {
+  if ((file.type || "").startsWith("image/")) return "image";
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name || "")) return "pdf";
+  return "doc"; // hwp/hwpx, txt, ppt(x), xls(x), doc(x), csv 등
+}
+
 /**
  * 파일을 Storage 에 업로드한다.
  * @returns {Promise<{fileUrl, fileType, fileName, filePath}>}
  */
 export async function uploadFile(file) {
-  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-  const fileType = isPdf ? "pdf" : "image";
-  if (!isPdf) file = await compressImage(file); // 이미지는 업로드 전 압축
-  const safeName = file.name ? file.name.replace(/[^\w.\-가-힣]/g, "_") : `${fileType}.png`;
+  const fileType = detectFileType(file);
+  const origName = file.name || "";
+  if (fileType === "image") file = await compressImage(file); // 이미지는 업로드 전 압축
+  const safeName = origName
+    ? origName.replace(/[^\w.\-가-힣]/g, "_")
+    : (fileType === "pdf" ? "file.pdf" : fileType === "image" ? "image.png" : "file");
   const path = `uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
   const sref = storageRef(storage, path);
   await uploadBytes(sref, file);
@@ -48,10 +57,31 @@ export async function uploadFile(file) {
   return { fileUrl, fileType, fileName: safeName, filePath: path };
 }
 
+/** 여러 파일을 업로드해 첨부 엔트리 배열로 반환 */
+export async function uploadFiles(files) {
+  const metas = await Promise.all([...files].map(uploadFile));
+  return metas.map(metaToEntry);
+}
+
+/** uploadFile 결과 → 카드 저장용 첨부 엔트리 */
+function metaToEntry(meta) {
+  return { url: meta.fileUrl, type: meta.fileType, name: meta.fileName, path: meta.filePath };
+}
+
+/**
+ * 카드의 첨부를 항상 배열로 반환한다 (구버전 단일 첨부 호환).
+ * @returns {{url, type, name, path}[]}
+ */
+export function cardFiles(card) {
+  if (Array.isArray(card.files) && card.files.length) return card.files;
+  if (card.fileUrl) return [{ url: card.fileUrl, type: card.fileType, name: card.fileName, path: card.filePath || null }];
+  return [];
+}
+
 /**
  * 카드를 추가한다.
  * @param {string} columnId
- * @param {object} data { title, body, isPrompt, file?, fileMeta?, linkUrl, linkPreview, authorName }
+ * @param {object} data { title, body, isPrompt, files?: File[], linkUrl, linkPreview, authorName }
  */
 export async function addCard(columnId, data) {
   // 새 글 위치: "bottom"이면 맨 아래(최소 order-1), 기본은 맨 위(최대 order+1)
@@ -61,17 +91,18 @@ export async function addCard(columnId, data) {
   else if (data.newCardPosition === "bottom") order = (snap.docs[snap.docs.length - 1].data().order ?? 0) - 1;
   else order = (snap.docs[0].data().order ?? 0) + 1;
 
-  let fileMeta = data.fileMeta || null;
-  if (data.file) fileMeta = await uploadFile(data.file);
+  const files = data.files?.length ? await uploadFiles(data.files) : [];
 
   return addDoc(cardsCol(columnId), {
     title: data.title?.trim() || "",
     body: data.body?.trim() || "",
     isPrompt: !!data.isPrompt,
-    fileUrl: fileMeta?.fileUrl || null,
-    fileType: fileMeta?.fileType || null,
-    fileName: fileMeta?.fileName || null,
-    filePath: fileMeta?.filePath || null,
+    files,
+    // 구버전 단일 첨부 필드는 더 이상 사용하지 않음 (호환을 위해 null 로 유지)
+    fileUrl: null,
+    fileType: null,
+    fileName: null,
+    filePath: null,
     linkUrl: data.linkUrl?.trim() || null,
     linkPreview: data.linkPreview || null,
     authorName: data.authorName?.trim() || "익명",
@@ -82,7 +113,10 @@ export async function addCard(columnId, data) {
   });
 }
 
-/** 카드 수정 (텍스트/링크/프롬프트 여부). 새 파일이 있으면 교체 */
+/**
+ * 카드 수정 (텍스트/링크/프롬프트 여부 + 첨부 갱신).
+ * @param {object} data { ..., keepFiles?: 유지할 기존 첨부 엔트리[], files?: 새로 추가할 File[], removedPaths?: 삭제할 Storage 경로[] }
+ */
 export async function updateCard(columnId, cardId, data) {
   const patch = {
     title: data.title?.trim() || "",
@@ -91,18 +125,29 @@ export async function updateCard(columnId, cardId, data) {
     linkUrl: data.linkUrl?.trim() || null,
     linkPreview: data.linkPreview || null,
   };
-  if (data.file) {
-    const meta = await uploadFile(data.file);
+  // 첨부 정보를 함께 넘긴 경우에만 갱신 (keepFiles/files 중 하나라도 정의되면)
+  if (data.keepFiles !== undefined || data.files !== undefined) {
+    const kept = (data.keepFiles || []).map((f) => ({ url: f.url, type: f.type, name: f.name, path: f.path || null }));
+    const uploaded = data.files?.length ? await uploadFiles(data.files) : [];
     Object.assign(patch, {
-      fileUrl: meta.fileUrl,
-      fileType: meta.fileType,
-      fileName: meta.fileName,
-      filePath: meta.filePath,
+      files: [...kept, ...uploaded],
+      // 구버전 단일 첨부 필드 제거 (배열로 일원화)
+      fileUrl: null,
+      fileType: null,
+      fileName: null,
+      filePath: null,
     });
-  } else if (data.removeFile) {
-    Object.assign(patch, { fileUrl: null, fileType: null, fileName: null, filePath: null });
   }
-  return updateDoc(doc(db, "columns", columnId, "cards", cardId), patch);
+  await updateDoc(doc(db, "columns", columnId, "cards", cardId), patch);
+
+  // 제거된 기존 첨부의 Storage 파일 정리 (best-effort)
+  for (const path of data.removedPaths || []) {
+    try {
+      await deleteObject(storageRef(storage, path));
+    } catch (_) {
+      /* 이미 없으면 무시 */
+    }
+  }
 }
 
 /**
@@ -138,14 +183,22 @@ export function setCardHidden(columnId, cardId, hidden) {
 export async function copyCardTo(sourceColumnId, card, targetColumnId, { ownFile = false, withComments = false } = {}) {
   const snap = await getDocs(query(cardsCol(targetColumnId), orderBy("order", "desc")));
   const order = snap.empty ? 1 : (snap.docs[0].data().order ?? 0) + 1;
+  // 복사는 파일 미소유(공유) → path 를 비워 삭제 시 원본 파일이 지워지지 않게 함
+  const files = cardFiles(card).map((f) => ({
+    url: f.url,
+    type: f.type,
+    name: f.name,
+    path: ownFile ? (f.path || null) : null,
+  }));
   const newRef = await addDoc(cardsCol(targetColumnId), {
     title: card.title || "",
     body: card.body || "",
     isPrompt: !!card.isPrompt,
-    fileUrl: card.fileUrl || null,
-    fileType: card.fileType || null,
-    fileName: card.fileName || null,
-    filePath: ownFile ? card.filePath || null : null, // 복사는 파일 미소유(공유) → 삭제 시 파일 안 지워짐
+    files,
+    fileUrl: null,
+    fileType: null,
+    fileName: null,
+    filePath: null,
     linkUrl: card.linkUrl || null,
     linkPreview: card.linkPreview || null,
     lockHash: card.lockHash || null,
@@ -195,11 +248,14 @@ export async function deleteCard(columnId, card, { keepFile = false } = {}) {
   batch.delete(doc(db, "columns", columnId, "cards", card.id));
   await batch.commit();
 
-  if (!keepFile && card.filePath) {
-    try {
-      await deleteObject(storageRef(storage, card.filePath));
-    } catch (_) {
-      /* 파일이 이미 없으면 무시 */
+  if (!keepFile) {
+    const paths = cardFiles(card).map((f) => f.path).filter(Boolean);
+    for (const path of paths) {
+      try {
+        await deleteObject(storageRef(storage, path));
+      } catch (_) {
+        /* 파일이 이미 없으면 무시 */
+      }
     }
   }
 }

@@ -14,7 +14,7 @@ import {
   deleteColumn,
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, setTabStats, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo, cardFiles } from "./cards.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment, setCommentCount } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -605,17 +605,20 @@ function buildCard(column, card, cards = [], index = 0) {
       });
     }
 
-    if (card.fileType === "image" && card.fileUrl) {
-      children.push(
-        el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
-      );
-    } else if (card.fileType === "pdf" && card.fileUrl) {
-      children.push(
-        el("div", { class: "card__file" }, [
-          el("span", { class: "card__file-icon", text: "📄" }),
-          el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-        ])
-      );
+    for (const f of cardFiles(card)) {
+      if (!f.url) continue;
+      if (f.type === "image") {
+        children.push(
+          el("div", { class: "card__media" }, [el("img", { attrs: { src: f.url, alt: f.name || "" } })])
+        );
+      } else {
+        children.push(
+          el("div", { class: "card__file" }, [
+            el("span", { class: "card__file-icon", text: f.type === "pdf" ? "📄" : "📎" }),
+            el("span", { class: "card__file-name", text: f.name || (f.type === "pdf" ? "PDF 교안" : "첨부 파일") }),
+          ])
+        );
+      }
     }
 
     if (card.linkUrl) children.push(buildLinkPreview(card));
@@ -943,17 +946,20 @@ function openCardDetail(column, card) {
     body.appendChild(bodyWrap);
   }
 
-  if (card.fileType === "image" && card.fileUrl) {
-    body.appendChild(el("img", { class: "detail__image", attrs: { src: card.fileUrl }, on: { click: () => openLightbox(card.fileUrl) } }));
-  } else if (card.fileType === "pdf" && card.fileUrl) {
-    body.appendChild(
-      el("div", { class: "card__file", attrs: { style: "margin-top:12px" } }, [
-        el("span", { class: "card__file-icon", text: "📄" }),
-        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-        el("a", { class: "btn btn--ghost btn--sm", attrs: { href: card.fileUrl, target: "_blank", rel: "noopener" }, text: "보기" }),
-        el("a", { class: "btn btn--ghost btn--sm", attrs: { href: card.fileUrl, download: card.fileName || "", target: "_blank", rel: "noopener" }, text: "다운로드" }),
-      ])
-    );
+  for (const f of cardFiles(card)) {
+    if (!f.url) continue;
+    if (f.type === "image") {
+      body.appendChild(el("img", { class: "detail__image", attrs: { src: f.url }, on: { click: () => openLightbox(f.url) } }));
+    } else {
+      body.appendChild(
+        el("div", { class: "card__file", attrs: { style: "margin-top:12px" } }, [
+          el("span", { class: "card__file-icon", text: f.type === "pdf" ? "📄" : "📎" }),
+          el("span", { class: "card__file-name", text: f.name || (f.type === "pdf" ? "PDF 교안" : "첨부 파일") }),
+          el("a", { class: "btn btn--ghost btn--sm", attrs: { href: f.url, target: "_blank", rel: "noopener" }, text: "보기" }),
+          el("a", { class: "btn btn--ghost btn--sm", attrs: { href: f.url, download: f.name || "", target: "_blank", rel: "noopener" }, text: "다운로드" }),
+        ])
+      );
+    }
   }
 
   if (card.linkUrl) body.appendChild(buildLinkPreview(card));
@@ -1029,8 +1035,12 @@ function openCardForm(column, existing = null) {
   const isEdit = !!existing;
   const isWebappPost = isWebappPostingContext(column);
   const authorLabel = authorLabelForColumn(column);
-  let pastedFile = null;       // 클립보드/파일 입력으로 받은 File
-  let removeExistingFile = false;
+  const MAX_FILES = 3;
+  // 첨부 허용 확장자 (이미지는 MIME 으로 별도 허용)
+  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv"];
+  const newFiles = [];                                   // 새로 추가한 File[]
+  const keptFiles = isEdit ? cardFiles(existing).slice() : []; // 유지 중인 기존 첨부 엔트리[]
+  const removedPaths = [];                               // 삭제 예정 기존 첨부 경로[]
 
   const nameInput = el("input", {
     class: "input",
@@ -1041,7 +1051,7 @@ function openCardForm(column, existing = null) {
     },
   });
   const titleInput = el("input", { class: "input", attrs: { placeholder: "제목", value: isEdit ? existing.title || "" : "" } });
-  const bodyInput = el("textarea", { class: "textarea textarea--lg", attrs: { placeholder: "내용 또는 프롬프트를 입력하세요" } });
+  const bodyInput = el("textarea", { class: "textarea textarea--lg", attrs: { placeholder: "내용을 입력하세요" } });
   bodyInput.value = isEdit ? existing.body || "" : "";
   const promptCheck = el("input", { attrs: { type: "checkbox", id: "is-prompt" } });
   if (isEdit && existing.isPrompt) promptCheck.checked = true;
@@ -1063,12 +1073,85 @@ function openCardForm(column, existing = null) {
     ? el("input", { attrs: { type: "checkbox", id: "remove-lock" } })
     : null;
 
-  // 파일: 클립보드 붙여넣기 + 파일 선택
-  const fileInput = el("input", { attrs: { type: "file", accept: "image/*,application/pdf", style: "display:none" } });
+  // 파일: 클립보드 붙여넣기 + 파일 선택 (최대 3개, 이미지/PDF/문서)
+  const fileInput = el("input", {
+    attrs: {
+      type: "file",
+      multiple: true,
+      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv",
+      style: "display:none",
+    },
+  });
   const chosen = el("div", { class: "file-chosen" });
+
+  const totalCount = () => keptFiles.length + newFiles.length;
+
+  function isAllowedFile(file) {
+    if ((file.type || "").startsWith("image/")) return true;
+    const ext = (file.name?.split(".").pop() || "").toLowerCase();
+    return ext === "pdf" || ALLOWED_EXT.includes(ext);
+  }
+
+  // 첨부 목록(기존 + 신규)을 다시 그린다
+  function renderChosen() {
+    chosen.innerHTML = "";
+    keptFiles.forEach((f, i) => {
+      chosen.appendChild(fileChip(f.name, f.type, f.url, () => {
+        if (f.path) removedPaths.push(f.path);
+        keptFiles.splice(i, 1);
+        renderChosen();
+      }));
+    });
+    newFiles.forEach((file, i) => {
+      const isImg = (file.type || "").startsWith("image/");
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      const url = isImg ? URL.createObjectURL(file) : null;
+      chosen.appendChild(fileChip(file.name, isImg ? "image" : isPdf ? "pdf" : "doc", url, () => {
+        newFiles.splice(i, 1);
+        renderChosen();
+      }));
+    });
+  }
+
+  function fileChip(name, type, url, onRemove) {
+    if (type === "image" && url) {
+      return el("div", { class: "paste-preview" }, [
+        el("img", { attrs: { src: url } }),
+        el("button", { class: "remove-file", text: "✕", attrs: { type: "button" }, on: { click: onRemove } }),
+      ]);
+    }
+    return el("span", { class: "file-chosen__item" }, [
+      el("span", { text: `${type === "pdf" ? "📄" : "📎"} ${name || "첨부 파일"}` }),
+      el("button", { class: "btn btn--ghost btn--sm", text: "제거", attrs: { type: "button" }, on: { click: onRemove } }),
+    ]);
+  }
+
+  // 파일들을 신규 첨부로 추가 (개수/형식/용량 검증)
+  function addFiles(fileList) {
+    for (const file of fileList) {
+      if (!file) continue;
+      if (totalCount() >= MAX_FILES) {
+        showToast(`첨부는 최대 ${MAX_FILES}개까지 가능해요`);
+        break;
+      }
+      if (!isAllowedFile(file)) {
+        showToast("이미지·PDF·문서(hwp/hwpx·txt·ppt·excel·doc 등)만 첨부할 수 있어요");
+        continue;
+      }
+      // 이미지는 업로드 전 자동 압축되므로 비이미지에만 20MB 제한 안내
+      const isImg = (file.type || "").startsWith("image/");
+      if (!isImg && file.size > 20 * 1024 * 1024) {
+        showToast(`${file.name}: 파일은 20MB까지 첨부할 수 있어요`);
+        continue;
+      }
+      newFiles.push(file);
+    }
+    renderChosen();
+  }
+
   const pasteZone = el("div", {
     class: "paste-zone",
-    text: "파일을 여기로 끌어다 놓거나, 이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 선택하세요 (PDF·이미지)",
+    text: "파일을 여기로 끌어다 놓거나, 이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 선택하세요 (이미지·PDF·문서, 최대 3개)",
     on: {
       click: () => fileInput.click(),
       dragover: (e) => {
@@ -1079,8 +1162,8 @@ function openCardForm(column, existing = null) {
       drop: (e) => {
         e.preventDefault();
         pasteZone.classList.remove("paste-zone--active");
-        const file = e.dataTransfer?.files?.[0];
-        if (file) setFile(file);
+        const files = e.dataTransfer?.files;
+        if (files?.length) addFiles(files);
       },
     },
   });
@@ -1089,54 +1172,20 @@ function openCardForm(column, existing = null) {
   const onPaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
-      setFile(item.getAsFile());
+      addFiles([item.getAsFile()]);
       pasteZone.classList.add("paste-zone--active");
       e.preventDefault();
     }
   };
   document.addEventListener("paste", onPaste);
 
-  function setFile(file) {
-    if (file) {
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-      const isImage = file.type.startsWith("image/");
-      // 드래그&드롭은 형식 제한을 우회하므로 여기서 직접 검증
-      if (!isPdf && !isImage) {
-        showToast("이미지 또는 PDF만 첨부할 수 있어요");
-        return;
-      }
-      // PDF 는 압축 없이 그대로 올라가므로 20MB 제한을 미리 안내. (이미지는 업로드 전 자동 압축)
-      if (isPdf && file.size > 20 * 1024 * 1024) {
-        showToast("PDF는 20MB까지 첨부할 수 있어요");
-        return;
-      }
-    }
-    pastedFile = file;
-    removeExistingFile = false;
-    chosen.innerHTML = "";
-    if (!file) return;
-    if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      const wrap = el("div", { class: "paste-preview" }, [
-        el("img", { attrs: { src: url } }),
-        el("button", { class: "remove-file", text: "✕", attrs: { type: "button" }, on: { click: () => { pastedFile = null; chosen.innerHTML = ""; } } }),
-      ]);
-      chosen.appendChild(wrap);
-    } else {
-      chosen.appendChild(el("span", { text: `📄 ${file.name}` }));
-      chosen.appendChild(el("button", { class: "btn btn--ghost btn--sm", text: "제거", attrs: { type: "button" }, on: { click: () => { pastedFile = null; chosen.innerHTML = ""; } } }));
-    }
-  }
-  fileInput.addEventListener("change", () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files?.length) addFiles(fileInput.files);
+    fileInput.value = ""; // 같은 파일 다시 선택 가능하도록 초기화
+  });
 
   // 기존 첨부 표시 (수정 모드)
-  if (isEdit && existing.fileUrl) {
-    const existingInfo = el("div", { class: "file-chosen" }, [
-      el("span", { text: existing.fileType === "pdf" ? `📄 ${existing.fileName || "PDF"}` : "🖼 기존 이미지" }),
-      el("button", { class: "btn btn--ghost btn--sm", text: "첨부 제거", attrs: { type: "button" }, on: { click: (e) => { removeExistingFile = true; e.target.closest(".file-chosen").remove(); } } }),
-    ]);
-    chosen.appendChild(existingInfo);
-  }
+  renderChosen();
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "field" }, [
@@ -1157,7 +1206,7 @@ function openCardForm(column, existing = null) {
       el("div", { class: "checkbox-row", attrs: { style: "margin-top:8px" } }, [previewCheck, el("label", { attrs: { for: "show-preview" }, text: "미리보기 표시 (체크 안 하면 바로가기 주소만)" })]),
       el("p", { class: "hint", text: "미리보기를 켜면 사이트 첫 화면 썸네일이 생성됩니다 (실패 시 단순 링크)." }),
     ]),
-    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷, 최대 20MB)" }), pasteZone, fileInput, chosen]),
+    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (이미지·PDF·문서, 최대 3개 · 각 20MB)" }), pasteZone, fileInput, chosen]),
     lockInput ? el("div", { class: "field" }, [
       el("label", { text: isAlreadyLocked ? "🔒 비밀번호 잠금 (설정됨)" : "🔒 비밀번호 잠금" }),
       lockInput,
@@ -1182,7 +1231,7 @@ function openCardForm(column, existing = null) {
       return;
     }
     const name = rawName || "익명";
-    const hasContent = titleInput.value.trim() || bodyInput.value.trim() || linkInput.value.trim() || pastedFile || (isEdit && existing.fileUrl && !removeExistingFile);
+    const hasContent = titleInput.value.trim() || bodyInput.value.trim() || linkInput.value.trim() || newFiles.length || keptFiles.length;
     if (!hasContent) {
       showToast("제목·내용·링크·파일 중 하나는 입력해주세요");
       return;
@@ -1207,12 +1256,13 @@ function openCardForm(column, existing = null) {
         linkUrl: linkVal,
         linkPreview,
         authorName: name,
-        file: pastedFile || undefined,
+        files: newFiles,
       };
 
       let savedId;
       if (isEdit) {
-        payload.removeFile = removeExistingFile;
+        payload.keepFiles = keptFiles;
+        payload.removedPaths = removedPaths;
         await updateCard(column.id, existing.id, payload);
         savedId = existing.id;
         showToast("수정했습니다");
