@@ -233,6 +233,9 @@ body {
 }
 @media (max-width: 720px) {
   .board--webapp { padding: 16px; }
+  .webapp-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  }
 }
 
 /* ---------- Column ---------- */
@@ -543,4 +546,10 @@ body {
     padding: 18px 16px 40px;
   }
   .column { flex-basis: auto; width: 100%; }
+  .column--gallery { width: 100%; }
+  .column__body--gallery {
+    grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+  }
+  .column--gallery .card__media img,
+  .column--gallery .link-preview__img { height: 120px; }
 }
