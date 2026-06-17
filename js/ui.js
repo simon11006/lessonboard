@@ -596,7 +596,13 @@ function buildCard(column, card, cards = [], index = 0) {
   if (card.body) {
     const bodyP = el("p", { class: "card__body card__body--clamp" });
     appendLinkified(bodyP, card.body);
-    children.push(bodyP);
+    // 내용이 잘렸을 때만(렌더 후 실제 오버플로 측정) '더보기' 안내를 노출한다.
+    const moreHint = el("span", { class: "card__more-hint", text: "⋯ 더보기" });
+    const bodyWrap = el("div", { class: "card__body-wrap" }, [bodyP, moreHint]);
+    children.push(bodyWrap);
+    requestAnimationFrame(() => {
+      if (bodyP.scrollHeight - bodyP.clientHeight > 2) bodyWrap.classList.add("card__body-wrap--more");
+    });
   }
 
   if (card.fileType === "image" && card.fileUrl) {
