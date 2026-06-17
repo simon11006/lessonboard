@@ -1037,7 +1037,7 @@ function openCardForm(column, existing = null) {
   const authorLabel = authorLabelForColumn(column);
   const MAX_FILES = 3;
   // 첨부 허용 확장자 (이미지는 MIME 으로 별도 허용)
-  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv"];
+  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "md", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv", "zip"];
   const newFiles = [];                                   // 새로 추가한 File[]
   const keptFiles = isEdit ? cardFiles(existing).slice() : []; // 유지 중인 기존 첨부 엔트리[]
   const removedPaths = [];                               // 삭제 예정 기존 첨부 경로[]
@@ -1078,7 +1078,7 @@ function openCardForm(column, existing = null) {
     attrs: {
       type: "file",
       multiple: true,
-      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv",
+      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv,.zip",
       style: "display:none",
     },
   });
@@ -1135,7 +1135,7 @@ function openCardForm(column, existing = null) {
         break;
       }
       if (!isAllowedFile(file)) {
-        showToast("이미지·PDF·문서(hwp/hwpx·txt·ppt·excel·doc 등)만 첨부할 수 있어요");
+        showToast("이미지·PDF·문서(hwp/hwpx·txt·md·ppt·excel·doc·zip 등)만 첨부할 수 있어요");
         continue;
       }
       // 이미지는 업로드 전 자동 압축되므로 비이미지에만 20MB 제한 안내
