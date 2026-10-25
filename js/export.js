@@ -31,14 +31,26 @@ export async function buildBackup() {
         fileType: card.fileType,
         fileName: card.fileName,
         linkUrl: card.linkUrl,
+        lat: card.lat,
+        lng: card.lng,
+        rosterName: card.rosterName,
         author: card.authorName,
         createdAt: tsToIso(card.createdAt),
         comments,
       });
     }
-    columns.push({ title: col.title, writePermission: col.writePermission, cards });
+    columns.push({ title: col.title, writePermission: col.writePermission, boardId: col.boardId || "main", cards });
   }
-  return { exportedAt: new Date().toISOString(), columns };
+  // 보드 목록 (boards 컬렉션 접근이 막혀 있어도 칼럼 백업은 계속 진행)
+  let boards = [];
+  try {
+    const boardsSnap = await getDocs(collection(db, "boards"));
+    boards = boardsSnap.docs.map((b) => {
+      const d = b.data();
+      return { id: b.id, title: d.title, type: d.type, description: d.description, roster: d.roster, createdAt: tsToIso(d.createdAt) };
+    });
+  } catch (_) { /* 규칙 미반영 */ }
+  return { exportedAt: new Date().toISOString(), boards, columns };
 }
 
 /** 백업 JSON 파일을 다운로드한다. */

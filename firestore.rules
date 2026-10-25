@@ -27,6 +27,10 @@ service cloud.firestore {
     match /tabs/{tabId} {
       allow read, write: if true;
     }
+    // Mosaic: 주제별 보드 목록
+    match /boards/{boardId} {
+      allow read, write: if true;
+    }
     match /columns/{columnId} {
       allow read, write: if true;
       match /cards/{cardId} {

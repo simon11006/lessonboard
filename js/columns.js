@@ -25,11 +25,11 @@ export function subscribeColumns(cb) {
   });
 }
 
-export async function addColumn(title, writePermission = "all", layout = "list", tabId = null, newCardPosition = "top", galleryCols = 3) {
+export async function addColumn(title, writePermission = "all", layout = "list", tabId = null, newCardPosition = "top", galleryCols = 3, boardId = null, role = null) {
   // 새 칼럼은 맨 뒤로
   const snap = await getDocs(query(columnsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
-  return addDoc(columnsRef, {
+  const data = {
     title: title.trim(),
     order: maxOrder + 1,
     writePermission,
@@ -38,7 +38,11 @@ export async function addColumn(title, writePermission = "all", layout = "list",
     tabId, // 속한 탭 (없으면 null → 첫 탭에 표시)
     newCardPosition, // "top" | "bottom" — 새 글을 어디에 넣을지
     createdAt: serverTimestamp(),
-  });
+  };
+  // 기본(main) 보드 칼럼은 기존처럼 boardId 없이 저장
+  if (boardId) data.boardId = boardId;
+  if (role) data.role = role; // "board" — 그룹형이 아닌 보드의 보관용 칼럼
+  return addDoc(columnsRef, data);
 }
 
 export function setColumnTab(columnId, tabId) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>바이브코딩 연수 게시판</title>
+  <title>Mosaic</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
@@ -13,8 +13,13 @@
 <body>
   <header class="app-header">
     <div class="app-header__title">
-      <span class="app-header__logo" aria-hidden="true">✦</span>
-      <div class="app-header__wordmark">
+      <!-- 홈(보드 목록)으로 가는 로고 -->
+      <a id="brand" class="brand" href="#/" title="보드 목록">
+        <span class="brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand__name">Mosaic</span>
+      </a>
+      <!-- 보드 안에서만 보이는 보드 제목 -->
+      <div id="board-heading" class="app-header__wordmark" hidden>
         <span id="site-kicker" class="app-header__kicker">VIBE CODING · WORKSHOP</span>
         <div class="app-header__titlerow">
           <h1 id="site-title">바이브코딩 연수 게시판</h1>
@@ -23,11 +28,14 @@
       </div>
     </div>
     <div class="app-header__actions">
-      <span id="teacher-badge" class="badge badge--teacher" hidden>강사 모드</span>
+      <span id="teacher-badge" class="badge badge--teacher" hidden>관리자 모드</span>
+      <button id="board-write-btn" class="btn btn--primary" hidden>＋ 글쓰기</button>
       <button id="add-column-btn" class="btn btn--primary" hidden>＋ 게시판 추가</button>
+      <button id="copy-link-btn" class="btn btn--ghost" hidden>🔗 링크 복사</button>
+      <button id="board-settings-btn" class="btn btn--ghost" hidden>⚙ 보드 설정</button>
       <button id="change-pw-btn" class="btn btn--ghost" hidden>🔑 비밀번호 변경</button>
       <button id="export-btn" class="btn btn--ghost" hidden>백업 내보내기</button>
-      <button id="teacher-mode-btn" class="btn btn--ghost">강사 모드</button>
+      <button id="teacher-mode-btn" class="btn btn--ghost">관리자</button>
     </div>
   </header>
 
