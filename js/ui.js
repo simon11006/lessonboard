@@ -20,7 +20,7 @@ import { renderHome, openBoardSettings, boardLink } from "./home.js";
 import { mountTypedBoard } from "./boardViews.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment, setCommentCount } from "./comments.js";
-import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
+import { fetchLinkPreview, normalizeUrl, attachPreviewFallback, isExpiringImage } from "./linkPreview.js";
 import {
   isTeacher,
   canManage,
@@ -903,9 +903,9 @@ function buildLinkPreview(card) {
     // 이미지(사이트 첫 화면 썸네일)가 있으면 첨부파일처럼 보이는 제목/설명/주소 블록 없이
     // 미리보기 첫 화면만 보여준다.
     if (p.image) {
-      return el("a", { class: "link-preview link-preview--imageonly", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
-        el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } }),
-      ]);
+      const img = el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } });
+      attachPreviewFallback(img, card.linkUrl); // 만료·깨진 스크린샷은 새로 받아서 교체
+      return el("a", { class: "link-preview link-preview--imageonly", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [img]);
     }
     // 이미지가 없을 때만 텍스트 메타 정보로 폴백.
     return el("a", { class: "link-preview", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
@@ -1465,7 +1465,8 @@ export function openCardForm(column, existing = null, opts = {}) {
       const linkVal = linkInput.value.trim();
       const prevLink = isEdit ? existing.linkUrl || "" : "";
       if (linkVal && previewCheck.checked) {
-        const reuse = isEdit && linkVal === prevLink && existing.linkPreview && existing.linkPreview.image;
+        // 같은 링크면 기존 미리보기 재사용 (단, 만료되는 예전 스크린샷 주소면 새로 받음)
+        const reuse = isEdit && linkVal === prevLink && existing.linkPreview && existing.linkPreview.image && !isExpiringImage(existing.linkPreview.image);
         linkPreview = reuse ? existing.linkPreview : await fetchLinkPreview(linkVal);
       }
 
