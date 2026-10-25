@@ -586,12 +586,13 @@ body {
 .brand__mark i:nth-child(3) { background: #7fb6e8; }
 .brand__mark i:nth-child(4) { background: #7fcfa3; }
 .brand__name { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
-/* 보드 안: 로고만 작게 + 오른쪽 구분선 */
-.brand--compact { gap: 8px; padding-right: 13px; border-right: 1px solid var(--line); border-radius: 0; }
-.brand--compact .brand__name { font-size: 15px; font-weight: 700; color: var(--ink-soft); }
-.brand--compact .brand__mark { grid-template-columns: repeat(2, 8px); gap: 2px; }
-.brand--compact .brand__mark i { width: 8px; height: 8px; border-radius: 2px; }
-.brand--compact:hover .brand__name { color: var(--ink); }
+/* 보드 안: 같은 Mosaic 마크(조금 작게) + 오른쪽 구분선, 그 옆에 보드 이름 */
+.brand--compact { gap: 9px; padding: 6px 16px 6px 0; border-right: 1px solid var(--line-strong); border-radius: 0; }
+.brand--compact .brand__name { font-size: 22px; }
+.brand--compact .brand__mark { grid-template-columns: repeat(2, 10px); gap: 3px; }
+.brand--compact .brand__mark i { width: 10px; height: 10px; border-radius: 3px; }
+.brand--compact:hover .brand__name { color: var(--accent-deep); }
+.app-header__title:has(.brand--compact) { gap: 16px; }
 
 /* ---------- 홈 화면 테마 (확정 목업 v8) ---------- */
 body.is-home { background: #f8f8fb; background-image: none; color: #1f2133; }

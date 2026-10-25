@@ -552,9 +552,10 @@ function renderHeader(board) {
   const titleEl = $("#site-title");
   const kickerEl = $("#site-kicker");
 
+  // 모든 보드 왼쪽 위에 Mosaic 마크(누르면 첫 화면)를 두고, 그 옆에 보드 이름을 둔다
   brand.classList.toggle("brand--compact", !onHome);
-  // 참여자는 공유받은 보드 안에서만 머물도록 홈 링크를 보여주지 않는다
-  brand.hidden = !onHome && !teacher;
+  brand.hidden = false;
+  brand.setAttribute("title", "첫 화면(보드 목록)으로");
   heading.hidden = onHome;
 
   if (onHome) {
