@@ -1,4 +1,4 @@
-// UI 렌더링: 칼럼/카드/모달/댓글/강사모드
+// UI 렌더링: 칼럼/카드/모달/댓글/관리자 모드
 import {
   subscribeColumns,
   addColumn,
@@ -15,6 +15,9 @@ import {
 } from "./columns.js";
 import { subscribeTabs, addTab, renameTab, setTabStats, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
 import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo, cardFiles } from "./cards.js";
+import { subscribeBoards, belongsTo, touchBoard, updateBoard, BOARD_TYPES, MAIN_BOARD_ID } from "./boards.js";
+import { renderHome, openBoardSettings, boardLink } from "./home.js";
+import { mountTypedBoard } from "./boardViews.js";
 import { downloadBackup } from "./export.js";
 import { subscribeComments, addComment, deleteComment, setCommentCount } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
@@ -29,7 +32,7 @@ import { isTeacherPasswordSet, markTeacherSetup, subscribeSiteInfo, setSiteInfo,
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
 
-function el(tag, opts = {}, children = []) {
+export function el(tag, opts = {}, children = []) {
   const node = document.createElement(tag);
   if (opts.class) node.className = opts.class;
   if (opts.text != null) node.textContent = opts.text;
@@ -75,7 +78,7 @@ function escapeHtml(s) {
   );
 }
 
-function fmtTime(ts) {
+export function fmtTime(ts) {
   if (!ts) return "방금";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   const diff = (Date.now() - d.getTime()) / 1000;
@@ -176,7 +179,7 @@ export function showToast(msg) {
 }
 
 // ---------- 모달 ----------
-function openModal(content, { wide = false } = {}) {
+export function openModal(content, { wide = false } = {}) {
   const overlay = el("div", {
     class: "modal-overlay",
     on: {
@@ -195,7 +198,7 @@ function openModal(content, { wide = false } = {}) {
   document.addEventListener("keydown", onEsc);
   return overlay;
 }
-function closeModal() {
+export function closeModal() {
   const root = $("#modal-root");
   const overlay = root.lastElementChild;
   if (overlay) {
@@ -205,7 +208,7 @@ function closeModal() {
   }
 }
 
-function modalHeader(title) {
+export function modalHeader(title) {
   return el("div", { class: "modal__header" }, [
     el("h2", { text: title }),
     el("button", { class: "icon-btn", text: "✕", on: { click: closeModal } }),
@@ -249,7 +252,7 @@ function dragAfterElement(container, y) {
 }
 
 // 칼럼 본문에 드래그 정렬 동작을 연결
-function attachColumnDnD(body, column) {
+export function attachColumnDnD(body, column) {
   body.addEventListener("dragover", (e) => {
     if (!dragState || dragState.columnId !== column.id) return; // 같은 칼럼 내에서만
     e.preventDefault();
@@ -295,7 +298,7 @@ function attachBoardColumnDnD(board) {
   });
 }
 
-// 칼럼 헤더를 드래그 핸들로 만들어 좌우 순서 변경 가능하게 한다 (강사용)
+// 칼럼 헤더를 드래그 핸들로 만들어 좌우 순서 변경 가능하게 한다 (관리자용)
 function attachColumnHeaderDrag(header, colEl, column) {
   header.setAttribute("draggable", "true");
   header.classList.add("column__header--draggable");
@@ -323,16 +326,100 @@ let tabsCache = [];
 let activeTabId = null;
 let renderedColumns = [];
 
+// ---------- 보드(주제별 공간) 상태 ----------
+// tabsCache/columnsCache 는 '현재 보드'에 속한 것만 담는다 (기존 그룹형 코드가 그대로 동작하도록)
+let allTabs = [];
+let allColumns = [];
+let boardDocs = [];
+let boardsError = null; // boards 컬렉션 접근 실패 (Firestore 규칙 미반영 등)
+let boardsLoaded = false;
+let siteInfo = { title: null, kicker: null };
+let currentBoardId = readRoute(); // null = 홈(보드 목록)
+const unlockedBoards = new Set();
+let typedView = null; // { key, ctrl } — 그룹형이 아닌 보드 화면 (지도 등은 다시 만들지 않고 갱신)
+
+/** 주소(#/b/보드ID)에서 현재 보드를 읽는다 */
+function readRoute() {
+  const m = location.hash.match(/^#\/b\/([^/?#]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export function startBoard() {
+  window.addEventListener("hashchange", () => {
+    const next = readRoute();
+    if (next === currentBoardId) return;
+    currentBoardId = next;
+    activeTabId = null; // 보드가 바뀌면 첫 탭부터
+    closeAllModals();
+    renderAll();
+    window.scrollTo(0, 0);
+  });
   subscribeTabs((tabs) => {
-    tabsCache = tabs;
-    ensureActiveTab();
+    allTabs = tabs;
     renderAll();
   });
   subscribeColumns((columns) => {
-    columnsCache = columns;
+    allColumns = columns;
     renderAll();
   });
+  subscribeBoards(
+    (docs) => { boardDocs = docs; boardsLoaded = true; boardsError = null; renderAll(); },
+    (err) => { boardsError = err; boardsLoaded = true; console.warn("보드 목록 구독 실패:", err.message); renderAll(); }
+  );
+}
+
+function closeAllModals() {
+  while ($("#modal-root").lastElementChild) closeModal();
+}
+
+/** 홈에 보일 전체 보드 목록 (기본 보드 main 은 문서가 없어도 포함) */
+export function getBoards() {
+  const mainDoc = boardDocs.find((d) => d.id === MAIN_BOARD_ID) || {};
+  const mainItems = [...allColumns, ...allTabs].filter((x) => belongsTo(x, MAIN_BOARD_ID));
+  const firstCreated = mainItems
+    .map((x) => x.createdAt)
+    .filter(Boolean)
+    .sort((a, b) => a.toMillis() - b.toMillis())[0] || null;
+  const main = {
+    ...mainDoc,
+    id: MAIN_BOARD_ID,
+    type: "group",
+    isMain: true,
+    title: siteInfo.title || "바이브코딩 연수 게시판",
+    kicker: siteInfo.kicker || "VIBE CODING · WORKSHOP",
+    createdAt: mainDoc.createdAt || firstCreated,
+    lockHash: null, // 기본 보드는 탭/게시판 단위 잠금을 그대로 쓴다
+  };
+  return [main, ...boardDocs.filter((d) => d.id !== MAIN_BOARD_ID)];
+}
+
+export function getAllColumns() {
+  return allColumns;
+}
+
+function currentBoard() {
+  if (!currentBoardId) return null;
+  return getBoards().find((b) => b.id === currentBoardId) || null;
+}
+
+/** 새 탭/칼럼을 만들 때 붙일 boardId (기본 보드는 기존처럼 없음) */
+function boardIdForWrite() {
+  return currentBoardId && currentBoardId !== MAIN_BOARD_ID ? currentBoardId : null;
+}
+
+/** 그룹형이 아닌 보드의 글 보관용 칼럼 */
+export function storageColumnOf(boardId) {
+  return allColumns.find((c) => c.boardId === boardId && c.role === "board") || null;
+}
+
+function isBoardLocked(board) {
+  return !!(board && board.lockHash && !isTeacher() && !unlockedBoards.has(board.id));
+}
+
+/** 관리자 비밀번호 확인 후 실행 (이미 관리자면 바로) */
+export function requireAdmin(cb) {
+  if (isTeacher()) cb();
+  else openTeacherLogin(cb);
 }
 
 function ensureActiveTab() {
@@ -353,7 +440,56 @@ function visibleColumns() {
   );
 }
 
-function renderAll() {
+export function renderAll() {
+  const board = currentBoard();
+  // 현재 보드 소속만 남긴다 (홈에서는 비워 둠)
+  tabsCache = board ? allTabs.filter((t) => belongsTo(t, board.id)) : [];
+  columnsCache = board ? allColumns.filter((c) => belongsTo(c, board.id)) : [];
+
+  renderHeader(board);
+  const boardNode = boardEl();
+  boardNode.className = "board";
+  document.body.classList.toggle("is-home", !currentBoardId);
+
+  if (!currentBoardId) {
+    destroyTypedView();
+    $("#tabbar").hidden = true;
+    clearCardSubs();
+    boardNode.classList.add("board--home");
+    renderHome(boardNode, { boards: getBoards(), columns: allColumns, boardsError });
+    return;
+  }
+
+  if (!board) {
+    destroyTypedView();
+    $("#tabbar").hidden = true;
+    clearCardSubs();
+    boardNode.innerHTML = "";
+    const msg = boardsLoaded || boardsError ? "보드를 찾을 수 없습니다. 주소를 다시 확인해 주세요." : "불러오는 중…";
+    boardNode.appendChild(el("div", { class: "board__empty", text: msg }));
+    return;
+  }
+
+  if (isBoardLocked(board)) {
+    destroyTypedView();
+    $("#tabbar").hidden = true;
+    clearCardSubs();
+    boardNode.innerHTML = "";
+    boardNode.appendChild(
+      el("div", { class: "tab-locked-gate", on: { click: () => openBoardUnlock(board) } }, [
+        el("div", { class: "column__locked", attrs: { style: "max-width:360px;margin:auto" }, text: "🔒 비밀번호가 필요한 보드입니다. 눌러서 입력하세요." }),
+      ])
+    );
+    return;
+  }
+
+  if (board.type !== "group") {
+    $("#tabbar").hidden = true;
+    renderTypedBoard(board);
+    return;
+  }
+
+  destroyTypedView();
   ensureActiveTab();
   renderTabs();
   renderBoard();
@@ -361,6 +497,89 @@ function renderAll() {
   const at = activeTab();
   const addColBtn = $("#add-column-btn");
   if (addColBtn) addColBtn.hidden = !(isTeacher() && (!at || at.type !== "webapp"));
+}
+
+function clearCardSubs() {
+  cardUnsubs.forEach((u) => u());
+  cardUnsubs.clear();
+}
+
+function destroyTypedView() {
+  if (typedView) {
+    typedView.ctrl.destroy();
+    typedView = null;
+  }
+}
+
+/** 격자·타일·스트림·출석부·지도형 보드 렌더 (같은 보드면 화면을 유지한 채 갱신) */
+function renderTypedBoard(board) {
+  clearCardSubs();
+  const column = storageColumnOf(board.id);
+  const boardNode = boardEl();
+  boardNode.classList.add("board--typed", `board--${board.type}`);
+  if (!column) {
+    destroyTypedView();
+    boardNode.innerHTML = "";
+    boardNode.appendChild(el("div", { class: "board__empty", text: "불러오는 중…" }));
+    return;
+  }
+  const canWrite = column.writePermission !== "teacher" || isTeacher();
+  const ctx = { board, column, canWrite, admin: isTeacher() };
+  const key = `${board.id}|${board.type}|${column.id}`;
+  if (typedView && typedView.key === key && boardNode.firstElementChild) {
+    typedView.ctrl.update(ctx);
+    return;
+  }
+  destroyTypedView();
+  boardNode.innerHTML = "";
+  typedView = { key, ctrl: mountTypedBoard(boardNode, ctx) };
+}
+
+function openBoardUnlock(board) {
+  openUnlockPrompt({
+    hashOf: board.lockHash,
+    label: "이 보드는 비밀번호로 보호되어 있습니다",
+    onSuccess: () => { unlockedBoards.add(board.id); renderAll(); },
+  });
+}
+
+/** 상단 헤더: 홈이면 Mosaic, 보드면 보드 제목과 보드용 버튼 */
+function renderHeader(board) {
+  const teacher = isTeacher();
+  const onHome = !currentBoardId;
+  const brand = $("#brand");
+  const heading = $("#board-heading");
+  const titleEl = $("#site-title");
+  const kickerEl = $("#site-kicker");
+
+  brand.classList.toggle("brand--compact", !onHome);
+  // 참여자는 공유받은 보드 안에서만 머물도록 홈 링크를 보여주지 않는다
+  brand.hidden = !onHome && !teacher;
+  heading.hidden = onHome;
+
+  if (onHome) {
+    document.title = "Mosaic";
+  } else if (board) {
+    titleEl.textContent = board.title;
+    kickerEl.textContent = board.isMain ? board.kicker : `MOSAIC · ${BOARD_TYPES[board.type]?.name || ""}`;
+    document.title = `${board.title} · Mosaic`;
+  }
+
+  const typed = !!board && board.type !== "group";
+  const column = typed ? storageColumnOf(board.id) : null;
+  const canWrite = typed && column && (column.writePermission !== "teacher" || teacher) && !isBoardLocked(board);
+
+  $("#teacher-badge").hidden = !teacher;
+  $("#edit-title-btn").hidden = !(teacher && board);
+  $("#add-column-btn").hidden = true; // 그룹형 렌더에서 다시 판단
+  $("#board-write-btn").hidden = !(canWrite && board.type !== "roll");
+  $("#copy-link-btn").hidden = !(teacher && board);
+  $("#board-settings-btn").hidden = !(teacher && board && !board.isMain);
+  // 전체 관리 도구(비밀번호·백업)는 홈에서만 — 보드 헤더는 보드 관련 버튼만 둔다
+  $("#export-btn").hidden = !(teacher && onHome);
+  $("#change-pw-btn").hidden = !(teacher && onHome);
+  $("#info-banner").hidden = onHome || !!localStorage.getItem("vibe_board_banner_closed");
+  $("#teacher-mode-btn").textContent = teacher ? "관리자 모드 종료" : "관리자";
 }
 
 function renderTabs() {
@@ -436,7 +655,7 @@ function renderBoard() {
   if (!columns.length) {
     const msg = isTeacher()
       ? "‘＋ 게시판 추가’로 게시판을 만들어 보세요."
-      : "아직 게시판이 없습니다. 강사가 곧 게시판을 만들 거예요.";
+      : "아직 게시판이 없습니다. 관리자가 곧 게시판을 만들 거예요.";
     board.appendChild(el("div", { class: "board__empty", text: msg }));
     return;
   }
@@ -444,7 +663,6 @@ function renderBoard() {
   columns.forEach((column, idx) => {
     board.appendChild(buildColumn(column, idx, columns.length));
   });
-
   if (isTeacher()) attachBoardColumnDnD(board);
 }
 
@@ -482,7 +700,7 @@ async function addWebappCard(tab) {
   let col = columnsCache.find((c) => c.tabId === tab.id);
   if (!col) {
     try {
-      const ref = await addColumn(tab.title || "웹앱", "all", "gallery", tab.id);
+      const ref = await addColumn(tab.title || "웹앱", "all", "gallery", tab.id, "top", 3, boardIdForWrite());
       col = { id: ref.id };
     } catch (e) {
       showToast("초기화 실패: " + e.message);
@@ -520,7 +738,7 @@ function buildColumn(column, index, total) {
   const titleWrap = el("div", { class: "column__titlewrap" }, [
     el("h2", { class: "column__title" }, [column.title, column.lockHash ? el("span", { class: "card__lock-icon", text: "🔒" }) : null]),
     countEl,
-    permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "강사" }) : null,
+    permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "관리자" }) : null,
   ]);
   // 1줄차: 제목 + 게시글 수 + 글쓰기(오른쪽 끝)
   const headerMain = el("div", { class: "column__header-main" }, [
@@ -538,7 +756,7 @@ function buildColumn(column, index, total) {
 
   const colEl = el("div", { class: "column" + (isGallery ? " column--gallery" : ""), attrs: { "data-column-id": column.id } }, [header, body]);
 
-  // 강사: 헤더를 잡고 드래그해 좌우 순서 변경
+  // 관리자: 헤더를 잡고 드래그해 좌우 순서 변경
   if (teacher) attachColumnHeaderDrag(header, colEl, column);
 
   if (isGallery) {
@@ -569,12 +787,12 @@ function buildColumn(column, index, total) {
   return colEl;
 }
 
-function buildCard(column, card, cards = [], index = 0) {
+export function buildCard(column, card, cards = [], index = 0) {
   const children = [];
   const isLocked = !!card.lockHash;
   const isEffectivelyLocked = isLocked && !isTeacher() && !unlockedCards.has(card.id);
 
-  if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 수강생에게 숨김" }));
+  if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 참여자에게 숨김" }));
   if (card.isPrompt && !isEffectivelyLocked) {
     const tagRow = [el("span", { class: "tag", attrs: { style: "margin:0" }, text: "프롬프트" })];
     if (card.body) {
@@ -626,10 +844,10 @@ function buildCard(column, card, cards = [], index = 0) {
 
   // footer
   const actions = [];
-  // 강사: 숨김 토글 + 비밀번호 잠금
+  // 관리자: 숨김 토글 + 비밀번호 잠금
   if (isTeacher()) {
     const hiddenNow = !!card.hidden;
-    actions.push(el("button", { class: "icon-btn", text: hiddenNow ? "🙈" : "👁", attrs: { title: hiddenNow ? "수강생에게 숨김 — 눌러서 다시 보이기" : "수강생에게 숨기기" }, on: { click: (e) => { e.stopPropagation(); setCardHidden(column.id, card.id, !hiddenNow).then(() => showToast(hiddenNow ? "다시 보입니다" : "수강생에게 숨겼습니다")).catch((err) => showToast("실패: " + err.message)); } } }));
+    actions.push(el("button", { class: "icon-btn", text: hiddenNow ? "🙈" : "👁", attrs: { title: hiddenNow ? "참여자에게 숨김 — 눌러서 다시 보이기" : "참여자에게 숨기기" }, on: { click: (e) => { e.stopPropagation(); setCardHidden(column.id, card.id, !hiddenNow).then(() => showToast(hiddenNow ? "다시 보입니다" : "참여자에게 숨겼습니다")).catch((err) => showToast("실패: " + err.message)); } } }));
     const lockedNow = !!card.lockHash;
     actions.push(el("button", { class: "icon-btn", text: lockedNow ? "🔒" : "🔓", attrs: { title: lockedNow ? "비밀번호 잠금됨 (변경/해제)" : "비밀번호 잠금" }, on: { click: (e) => { e.stopPropagation(); openCardLock(column, card); } } }));
     actions.push(el("button", { class: "icon-btn", text: "⇄", attrs: { title: "복사 / 이동" }, on: { click: (e) => { e.stopPropagation(); openCardMoveCopy(column, card); } } }));
@@ -713,7 +931,7 @@ const unlockedColumns = new Set();
 const unlockedTabs = new Set();
 
 // 공통: 비밀번호 잠금 설정/변경/해제 모달
-function openLockEditor({ title, locked, hint, onSet, onRemove }) {
+export function openLockEditor({ title, locked, hint, onSet, onRemove }) {
   const pw = el("input", { class: "input", attrs: { type: "password", placeholder: locked ? "새 비밀번호 (변경 시 입력)" : "비밀번호" } });
   const setBtn = el("button", { class: "btn btn--primary", text: locked ? "변경" : "잠금" });
   setBtn.addEventListener("click", async () => {
@@ -746,7 +964,7 @@ function openLockEditor({ title, locked, hint, onSet, onRemove }) {
 }
 
 // 공통: 비밀번호 입력 모달
-function openUnlockPrompt({ hashOf, onSuccess, label }) {
+export function openUnlockPrompt({ hashOf, onSuccess, label }) {
   const pw = el("input", { class: "input", attrs: { type: "password", placeholder: "비밀번호" } });
   const okBtn = el("button", { class: "btn btn--primary", text: "열기" });
   const tryOpen = async () => {
@@ -777,7 +995,7 @@ function openColumnLock(column) {
   openLockEditor({
     title: column.lockHash ? "🔒 게시판 잠금 설정" : "🔒 게시판 잠그기",
     locked: !!column.lockHash,
-    hint: column.lockHash ? "이 게시판은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 수강생은 비밀번호를 입력해야 이 게시판을 볼 수 있어요. (강사는 바로 열람)",
+    hint: column.lockHash ? "이 게시판은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 참여자은 비밀번호를 입력해야 이 게시판을 볼 수 있어요. (관리자는 바로 열람)",
     onSet: (h) => setColumnLock(column.id, h),
     onRemove: () => { unlockedColumns.delete(column.id); return setColumnLock(column.id, null); },
   });
@@ -793,12 +1011,12 @@ function openTabLock(tab) {
   openLockEditor({
     title: tab.lockHash ? "🔒 탭 잠금 설정" : "🔒 탭 잠그기",
     locked: !!tab.lockHash,
-    hint: tab.lockHash ? "이 탭은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 수강생은 비밀번호를 입력해야 이 탭에 들어올 수 있어요. (강사는 바로 입장)",
+    hint: tab.lockHash ? "이 탭은 잠겨 있습니다. 변경하거나 해제할 수 있어요." : "잠그면 참여자은 비밀번호를 입력해야 이 탭에 들어올 수 있어요. (관리자는 바로 입장)",
     onSet: (h) => setTabLock(tab.id, h),
     onRemove: () => { unlockedTabs.delete(tab.id); return setTabLock(tab.id, null); },
   });
 }
-// 이 탭이 (지금 사용자에게) 잠겨 있는지 — 강사·이미 푼 탭은 잠금 아님
+// 이 탭이 (지금 사용자에게) 잠겨 있는지 — 관리자·이미 푼 탭은 잠금 아님
 function isTabLocked(tab) {
   return !!(tab && tab.lockHash && !isTeacher() && !unlockedTabs.has(tab.id));
 }
@@ -861,7 +1079,7 @@ function openCardUnlock(column, card) {
   pw.focus();
 }
 
-// 강사: 글 비밀번호 설정/변경/해제
+// 관리자: 글 비밀번호 설정/변경/해제
 function openCardLock(column, card) {
   const locked = !!card.lockHash;
   const pw = el("input", { class: "input", attrs: { type: "password", placeholder: locked ? "새 비밀번호 (변경 시 입력)" : "비밀번호" } });
@@ -900,7 +1118,7 @@ function openCardLock(column, card) {
     el("div", { class: "modal__body" }, [
       el("div", { class: "field" }, [
         el("label", { text: "비밀번호" }), pw,
-        el("p", { class: "hint", text: locked ? "잠긴 글입니다. 새 비밀번호로 변경하거나 잠금을 해제할 수 있어요." : "비밀번호를 걸면 연수생은 비밀번호를 입력해야 글을 볼 수 있어요. (강사는 바로 열람)" }),
+        el("p", { class: "hint", text: locked ? "잠긴 글입니다. 새 비밀번호로 변경하거나 잠금을 해제할 수 있어요." : "비밀번호를 걸면 참여자은 비밀번호를 입력해야 글을 볼 수 있어요. (관리자는 바로 열람)" }),
       ]),
     ]),
     el("div", { class: "modal__footer" }, footer),
@@ -908,8 +1126,8 @@ function openCardLock(column, card) {
   pw.focus();
 }
 
-function openCardDetail(column, card) {
-  // 잠긴 글은 비밀번호 입력 후 열람 (강사·이미 연 글은 통과)
+export function openCardDetail(column, card) {
+  // 잠긴 글은 비밀번호 입력 후 열람 (관리자·이미 연 글은 통과)
   if (card.lockHash && !isTeacher() && !unlockedCards.has(card.id)) {
     openCardUnlock(column, card);
     return;
@@ -1031,7 +1249,9 @@ function openCardDetail(column, card) {
 }
 
 // ---------- 카드 작성/수정 폼 ----------
-function openCardForm(column, existing = null) {
+// opts.extra: 새 글에 함께 저장할 보드 유형별 필드 (지도 lat/lng, 출석부 rosterName)
+// opts.presetName: 이름 칸 기본값 (출석부형에서 해당 참여자 이름)
+export function openCardForm(column, existing = null, opts = {}) {
   const isEdit = !!existing;
   const isWebappPost = isWebappPostingContext(column);
   const authorLabel = authorLabelForColumn(column);
@@ -1046,7 +1266,7 @@ function openCardForm(column, existing = null) {
     class: "input",
     attrs: {
       placeholder: isWebappPost ? `${authorLabel} 이름` : "이름",
-      value: isEdit ? existing.authorName : lastName,
+      value: isEdit ? existing.authorName : opts.presetName || lastName,
       required: isWebappPost,
     },
   });
@@ -1268,6 +1488,7 @@ function openCardForm(column, existing = null) {
         showToast("수정했습니다");
       } else {
         payload.newCardPosition = column.newCardPosition; // 칼럼 설정에 따라 위/아래 삽입
+        payload.extra = opts.extra;
         const ref = await addCard(column.id, payload);
         savedId = ref.id;
         showToast("등록했습니다");
@@ -1284,6 +1505,7 @@ function openCardForm(column, existing = null) {
         }
       }
 
+      touchBoard(column.boardId || MAIN_BOARD_ID); // 홈의 '최근 활동' 정렬용
       closeModal();
     } catch (e) {
       showToast("저장 실패: " + e.message);
@@ -1296,7 +1518,7 @@ function openCardForm(column, existing = null) {
   overlay._cleanup = () => document.removeEventListener("paste", onPaste);
 }
 
-// 강사: 글 복사 / 다른 게시판으로 이동 (탭 선택 → 게시판 선택 2단계)
+// 관리자: 글 복사 / 다른 게시판으로 이동 (탭 선택 → 게시판 선택 2단계)
 function openCardMoveCopy(column, card) {
   const firstTabId = tabsCache[0] ? tabsCache[0].id : null;
 
@@ -1377,12 +1599,12 @@ function confirmDeleteCard(column, card) {
     .catch((e) => showToast("삭제 실패: " + e.message));
 }
 
-// ---------- 칼럼 추가/설정 (강사) ----------
+// ---------- 칼럼 추가/설정 (관리자) ----------
 export function openColumnForm() {
   const titleInput = el("input", { class: "input", attrs: { placeholder: "게시판 이름 (예: 1일차 실습, Q&A, 참고자료)" } });
   const permSelect = el("select", { class: "select" }, [
     el("option", { attrs: { value: "all" }, text: "모두 글쓰기 가능" }),
-    el("option", { attrs: { value: "teacher" }, text: "강사만 글쓰기 가능" }),
+    el("option", { attrs: { value: "teacher" }, text: "관리자만 글쓰기 가능" }),
   ]);
   const layoutSelect = el("select", { class: "select" }, [
     el("option", { attrs: { value: "list" }, text: "목록 (좁은 세로 칼럼)" }),
@@ -1421,7 +1643,7 @@ export function openColumnForm() {
     const title = titleInput.value.trim();
     if (!title) return showToast("게시판 이름을 입력하세요");
     try {
-      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null, posSelect.value, Number(colsSelect.value));
+      await addColumn(title, permSelect.value, layoutSelect.value, tabSelect ? tabSelect.value : null, posSelect.value, Number(colsSelect.value), boardIdForWrite());
       showToast("게시판을 추가했습니다");
       closeModal();
     } catch (e) {
@@ -1440,7 +1662,7 @@ function openColumnSettings(column) {
   const titleInput = el("input", { class: "input", attrs: { value: column.title } });
   const permSelect = el("select", { class: "select" }, [
     el("option", { attrs: { value: "all" }, text: "모두 글쓰기 가능" }),
-    el("option", { attrs: { value: "teacher" }, text: "강사만 글쓰기 가능" }),
+    el("option", { attrs: { value: "teacher" }, text: "관리자만 글쓰기 가능" }),
   ]);
   permSelect.value = column.writePermission || "all";
   const layoutSelect = el("select", { class: "select" }, [
@@ -1510,7 +1732,7 @@ function confirmDeleteColumn(column) {
     .catch((e) => showToast("삭제 실패: " + e.message));
 }
 
-// ---------- 탭 관리 (강사) ----------
+// ---------- 탭 관리 (관리자) ----------
 function openTabForm() {
   const titleInput = el("input", { class: "input", attrs: { placeholder: "탭 이름 (예: 강의용 게시판, 연수 실습 웹앱)" } });
   const typeSelect = el("select", { class: "select" }, [
@@ -1520,7 +1742,7 @@ function openTabForm() {
   const hint = el("p", { class: "hint", text: "일반: 탭 안에 게시판(칼럼)을 여러 개 만듭니다. 웹앱: 게시판 없이 카드 갤러리로 바로 작품을 올립니다." });
   typeSelect.addEventListener("change", () => {
     hint.textContent = typeSelect.value === "webapp"
-      ? "웹앱: 게시판(칼럼) 없이 카드 갤러리로 동작합니다. 연수생이 바로 ‘＋ 글쓰기’로 웹앱을 올려요."
+      ? "웹앱: 게시판(칼럼) 없이 카드 갤러리로 동작합니다. 참여자이 바로 ‘＋ 글쓰기’로 웹앱을 올려요."
       : "일반: 탭 안에 게시판(칼럼)을 여러 개 만들어 교안·프롬프트·Q&A 등을 둡니다.";
   });
 
@@ -1531,9 +1753,9 @@ function openTabForm() {
     saveBtn.disabled = true;
     try {
       const type = typeSelect.value;
-      const ref = await addTab(title, type);
+      const ref = await addTab(title, type, boardIdForWrite());
       // 웹앱 탭은 카드 갤러리용 칼럼을 자동 생성 → 바로 글쓰기 가능
-      if (type === "webapp") await addColumn(title, "all", "gallery", ref.id);
+      if (type === "webapp") await addColumn(title, "all", "gallery", ref.id, "top", 3, boardIdForWrite());
       activeTabId = ref.id; // 새 탭으로 전환
       showToast("탭을 추가했습니다");
       closeModal();
@@ -1593,8 +1815,8 @@ function confirmDeleteTab(tab) {
     .catch((e) => showToast("삭제 실패: " + e.message));
 }
 
-// ---------- 강사 모드 토글 ----------
-async function openTeacherLogin() {
+// ---------- 관리자 모드 토글 ----------
+async function openTeacherLogin(onSuccess) {
   let hasPassword;
   try {
     hasPassword = await isTeacherPasswordSet();
@@ -1609,15 +1831,16 @@ async function openTeacherLogin() {
     return;
   }
 
-  // 이후: 비밀번호 입력 → 강사 계정으로 로그인 (강사 여부는 인증 리스너가 반영)
-  const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "강사 비밀번호" } });
+  // 이후: 비밀번호 입력 → 관리자(강사) 계정으로 로그인 (관리자 여부는 인증 리스너가 반영)
+  const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "관리자 비밀번호" } });
   const okBtn = el("button", { class: "btn btn--primary", text: "확인" });
   const tryLogin = async () => {
     okBtn.disabled = true;
     try {
       await teacherSignIn(pwInput.value);
-      showToast("강사 모드로 전환했습니다");
+      showToast("관리자 모드로 전환했습니다");
       closeModal();
+      if (onSuccess) onSuccess(); // 예: 새 보드 만들기 창 이어서 열기
     } catch (e) {
       showToast(e.code === "wrong-password" ? "비밀번호가 올바르지 않습니다" : "확인 실패: " + e.message);
       pwInput.value = "";
@@ -1629,9 +1852,9 @@ async function openTeacherLogin() {
   okBtn.addEventListener("click", tryLogin);
   pwInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
   openModal([
-    modalHeader("강사 모드"),
+    modalHeader("관리자 모드"),
     el("div", { class: "modal__body" }, [
-      el("div", { class: "field" }, [el("label", { text: "강사 비밀번호" }), pwInput, el("p", { class: "hint", text: "비밀번호를 입력하면 게시판 관리와 모든 글 삭제가 가능해집니다." })]),
+      el("div", { class: "field" }, [el("label", { text: "관리자 비밀번호" }), pwInput, el("p", { class: "hint", text: "비밀번호를 입력하면 게시판 관리와 모든 글 삭제가 가능해집니다." })]),
     ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), okBtn]),
   ]);
@@ -1674,10 +1897,10 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   if (!firstTime) footer.unshift(el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }));
 
   openModal([
-    modalHeader(firstTime ? "강사 비밀번호 설정" : "강사 비밀번호 변경"),
+    modalHeader(firstTime ? "관리자 비밀번호 설정" : "관리자 비밀번호 변경"),
     el("div", { class: "modal__body" }, [
       firstTime
-        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호로 강사 전용 계정이 만들어지고, 다음부터 강사 모드 입장에 사용됩니다. (6자 이상)" })
+        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호로 관리자 전용 계정이 만들어지고, 다음부터 관리자 모드 입장에 사용됩니다. (6자 이상)" })
         : null,
       el("div", { class: "field" }, [el("label", { text: "새 비밀번호" }), pw1]),
       el("div", { class: "field" }, [el("label", { text: "비밀번호 확인" }), pw2]),
@@ -1687,11 +1910,16 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   pw1.focus();
 }
 
-// 게시판 제목/부제 수정 모달 (강사 전용)
+// 보드 제목 수정 모달 (관리자 전용)
+// 기본 보드는 기존처럼 config/site(부제+제목), 다른 보드는 boards 문서의 제목을 바꾼다
 function openEditTitleModal() {
+  const board = currentBoard();
+  if (!board) return;
   const kickerEl = $("#site-kicker");
   const titleEl = $("#site-title");
-  const kickerInput = el("input", { class: "input", attrs: { type: "text", value: kickerEl.textContent.trim(), placeholder: "예: VIBE CODING · WORKSHOP" } });
+  const kickerInput = board.isMain
+    ? el("input", { class: "input", attrs: { type: "text", value: kickerEl.textContent.trim(), placeholder: "예: VIBE CODING · WORKSHOP" } })
+    : null;
   const titleInput = el("input", { class: "input", attrs: { type: "text", value: titleEl.textContent.trim() } });
   const saveBtn = el("button", { class: "btn btn--primary", text: "저장" });
 
@@ -1700,7 +1928,8 @@ function openEditTitleModal() {
     if (!title) return showToast("제목을 입력해주세요");
     saveBtn.disabled = true;
     try {
-      await setSiteInfo({ title, kicker: kickerInput.value.trim() });
+      if (board.isMain) await setSiteInfo({ title, kicker: kickerInput.value.trim() });
+      else await updateBoard(board.id, { title });
       showToast("제목을 변경했습니다");
       closeModal();
     } catch (e) {
@@ -1710,13 +1939,13 @@ function openEditTitleModal() {
   };
   saveBtn.addEventListener("click", save);
   const onEnter = (e) => { if (e.key === "Enter") save(); };
-  kickerInput.addEventListener("keydown", onEnter);
+  kickerInput?.addEventListener("keydown", onEnter);
   titleInput.addEventListener("keydown", onEnter);
 
   openModal([
-    modalHeader("게시판 제목 수정"),
+    modalHeader("보드 제목 수정"),
     el("div", { class: "modal__body" }, [
-      el("div", { class: "field" }, [el("label", { text: "부제 (상단 영문)" }), kickerInput]),
+      kickerInput ? el("div", { class: "field" }, [el("label", { text: "부제 (상단 영문)" }), kickerInput]) : null,
       el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     ]),
     el("div", { class: "modal__footer" }, [el("button", { class: "btn btn--ghost", text: "취소", on: { click: closeModal } }), saveBtn]),
@@ -1738,23 +1967,31 @@ export function initHeader() {
 
   changePwBtn.addEventListener("click", () => openSetPasswordModal({ firstTime: false }));
 
-  // 게시판 제목/부제 (Firestore 연동, 강사가 수정 가능)
-  subscribeSiteInfo(({ title, kicker }) => {
-    if (title) {
-      titleEl.textContent = title;
-      document.title = title;
-    }
-    if (kicker) kickerEl.textContent = kicker;
+  // 기본 보드 제목/부제 (Firestore config/site 연동, 관리자가 수정 가능) → 헤더는 renderAll 이 그린다
+  subscribeSiteInfo((info) => {
+    siteInfo = info;
+    renderAll();
   });
   editTitleBtn.addEventListener("click", openEditTitleModal);
 
-  // 제목·로고를 누르면 홈(첫 탭)으로 돌아간다.
-  const logoEl = $(".app-header__logo");
-  [titleEl, logoEl].forEach((elm) => {
-    if (!elm) return;
-    elm.classList.add("is-home-link");
-    elm.setAttribute("title", "홈으로");
-    elm.addEventListener("click", goHome);
+  // 보드 제목을 누르면 그 보드의 첫 탭으로 돌아간다 (그룹형).
+  titleEl.classList.add("is-home-link");
+  titleEl.setAttribute("title", "첫 탭으로");
+  titleEl.addEventListener("click", goHome);
+
+  // 보드용 버튼: 글쓰기(격자·타일·스트림·지도형), 링크 복사, 보드 설정
+  $("#board-write-btn").addEventListener("click", () => typedView?.ctrl.startWrite());
+  $("#copy-link-btn").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(boardLink(currentBoardId));
+      showToast("보드 링크를 복사했습니다 🔗");
+    } catch {
+      showToast("복사에 실패했습니다");
+    }
+  });
+  $("#board-settings-btn").addEventListener("click", () => {
+    const board = currentBoard();
+    if (board) openBoardSettings(board);
   });
 
   // 안내 배너 (한 번 닫으면 기억)
@@ -1785,7 +2022,7 @@ export function initHeader() {
     if (isTeacher()) {
       modeBtn.disabled = true;
       teacherSignOut()
-        .then(() => showToast("강사 모드를 종료했습니다"))
+        .then(() => showToast("관리자 모드를 종료했습니다"))
         .catch((e) => showToast("종료 실패: " + e.message))
         .finally(() => { modeBtn.disabled = false; });
     } else {
@@ -1794,13 +2031,6 @@ export function initHeader() {
   });
   addColBtn.addEventListener("click", openColumnForm);
 
-  onTeacherModeChange((on) => {
-    badge.hidden = !on;
-    addColBtn.hidden = !on;
-    exportBtn.hidden = !on;
-    changePwBtn.hidden = !on;
-    editTitleBtn.hidden = !on;
-    modeBtn.textContent = on ? "강사 모드 종료" : "강사 모드";
-    renderAll(); // 권한에 따른 탭/버튼 재노출
-  });
+  // 권한에 따른 헤더 버튼·탭·보드 화면은 renderAll 이 다시 그린다
+  onTeacherModeChange(() => renderAll());
 }

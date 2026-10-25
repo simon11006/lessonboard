@@ -110,7 +110,13 @@ export async function addCard(columnId, data) {
     commentCount: 0,
     order,
     createdAt: serverTimestamp(),
+    ...(data.extra || {}), // 보드 유형별 필드 (지도형 lat/lng, 출석부형 rosterName)
   });
+}
+
+/** 보드 유형별 필드만 변경 (지도 핀 위치 이동 등) */
+export function updateCardFields(columnId, cardId, patch) {
+  return updateDoc(doc(db, "columns", columnId, "cards", cardId), patch);
 }
 
 /**

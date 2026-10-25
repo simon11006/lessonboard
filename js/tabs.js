@@ -38,10 +38,12 @@ export function subscribeTabs(cb) {
   });
 }
 
-export async function addTab(title, type = "board") {
+export async function addTab(title, type = "board", boardId = null) {
   const snap = await getDocs(query(tabsRef, orderBy("order", "desc")));
   const maxOrder = snap.empty ? 0 : (snap.docs[0].data().order ?? 0);
-  return addDoc(tabsRef, { title: title.trim(), order: maxOrder + 1, type, createdAt: serverTimestamp() });
+  const data = { title: title.trim(), order: maxOrder + 1, type, createdAt: serverTimestamp() };
+  if (boardId) data.boardId = boardId; // 기본(main) 보드 탭은 기존처럼 boardId 없음
+  return addDoc(tabsRef, data);
 }
 
 export function renameTab(tabId, title) {
