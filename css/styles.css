@@ -600,13 +600,14 @@ body.is-home .app-header .btn { font-size: 16px; padding: 10px 17px; border-radi
 body.is-home .app-header .btn--ghost { border-color: #dcdce6; color: #555a70; }
 body.is-home .badge { font-size: 13px; }
 
-.board--home { display: block; overflow-x: hidden; padding: 0; }
-.home { padding: 36px 32px 56px; }
+/* .board 는 그룹형 가로 스크롤을 위해 width:max-content 이므로, 홈은 화면 폭을 꽉 채우도록 되돌린다 */
+.board--home { display: block; width: auto; overflow-x: hidden; padding: 0; }
+.home { padding: 26px 32px 48px; }
 .home__notice {
   margin-bottom: 22px; padding: 14px 18px; border-radius: 12px;
   background: #fff6e6; border: 1px solid #f3d9a8; color: #8a5a12; font-size: 15px; line-height: 1.55;
 }
-.home__bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
+.home__bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .home__title { display: flex; align-items: baseline; gap: 10px; }
 .home__title h2 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
 .home__title span { font-size: 21px; color: #9a9db0; }
@@ -623,11 +624,12 @@ body.is-home .badge { font-size: 13px; }
 .home__seg button.is-on { background: #fff; color: #1f2133; font-weight: 700; box-shadow: 0 1px 3px rgba(30, 30, 60, 0.12); }
 
 /* 카드형 */
-.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px 24px; }
+/* 컴퓨터 화면: 한 줄 4칸 고정 + 16:9 미리보기 → 한 화면에 두 줄이 들어오는 크기 */
+.hb-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 22px; }
 .hb-grid--solo { margin-bottom: 34px; }
 .hb-card { display: block; color: inherit; text-decoration: none; min-width: 0; }
 .hb-thumb {
-  position: relative; aspect-ratio: 4 / 3; border-radius: 16px; overflow: hidden;
+  position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 .hb-card:hover .hb-thumb { transform: translateY(-3px); box-shadow: 0 12px 26px -12px rgba(30, 30, 70, 0.35); }
@@ -645,7 +647,7 @@ body.is-home .badge { font-size: 13px; }
 }
 .hb-menu:hover { background: #ececf3; color: #1f2133; }
 .hb-new {
-  aspect-ratio: 4 / 3; width: 100%;
+  aspect-ratio: 16 / 9; width: 100%;
   border: 2px dashed #cfd0dc; border-radius: 16px; background: #fff; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   color: #6b6f85; font: inherit; transition: border-color 0.15s, color 0.15s, background 0.15s;
@@ -752,7 +754,7 @@ a.hl-row:hover, .hl-row--new:hover { background: #fafafd; }
 .modal__footer-left { display: flex; gap: 9px; margin-right: auto; }
 
 /* ---------- 유형별 보드 공통 ---------- */
-.board--typed { display: block; overflow-x: hidden; }
+.board--typed { display: block; width: auto; overflow-x: hidden; }
 .tb-intro { margin: 0 0 18px; font-size: 15px; color: var(--ink-soft); line-height: 1.6; }
 .tb-empty {
   padding: 48px 20px; text-align: center; color: var(--ink-faint); font-size: 15px;
@@ -870,6 +872,10 @@ a.hl-row:hover, .hl-row--new:hover { background: #fafafd; }
 .mpin--hidden { opacity: 0.5; }
 
 /* ---------- Responsive (Mosaic) ---------- */
+/* 홈 카드 칸 수: 넓은 화면 4 → 태블릿 3 → 2 → 휴대폰 1 */
+@media (max-width: 1100px) { .hb-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 820px) { .hb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .hb-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) {
   .type-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hl-row { grid-template-columns: 72px minmax(0, 1fr) 110px 44px; }
@@ -884,7 +890,7 @@ a.hl-row:hover, .hl-row--new:hover { background: #fafafd; }
   .brand__name { font-size: 24px; }
   .home { padding: 24px 16px 40px; }
   .home__title h2 { font-size: 26px; }
-  .hb-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 16px; }
+  .hb-grid { gap: 22px 16px; }
   .home__seg button { padding: 8px 12px; font-size: 15px; }
   .home__sort { font-size: 15px; }
   .type-picker { grid-template-columns: minmax(0, 1fr); }
