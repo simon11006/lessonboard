@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="바이브코딩 연수 게시판">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f6d54"/>
+      <stop offset="1" stop-color="#255a44"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="16" fill="url(#g)"/>
+  <!-- 헤더 로고와 동일한 ✦ 4각 별(스파클) -->
+  <path d="M32 12 L36.2 27.8 L52 32 L36.2 36.2 L32 52 L27.8 36.2 L12 32 L27.8 27.8 Z" fill="#ffffff"/>
+</svg>

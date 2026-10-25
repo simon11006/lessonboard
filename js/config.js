@@ -1,6 +1,10 @@
-// 강사 비밀번호 (Firestore 저장, SHA-256 해시)
-// config/teacher 문서에 passwordHash 를 보관한다.
-// 평문이 아니라 해시를 저장 → Firestore 읽기가 공개여도 비밀번호가 노출되지 않음.
+// 강사 설정 마커 + 사이트 정보 (Firestore)
+// ---------------------------------------------------------------------------
+// 강사 인증은 Firebase Auth(강사 계정 로그인, js/firebase.js)가 서버에서
+// 처리한다. config/teacher 문서는 "강사 비밀번호가 한 번이라도 설정됐는지"를
+// 알리는 마커로만 쓴다 (최초 설정 vs 로그인 화면 구분용).
+//   - 과거 버전이 저장한 passwordHash 필드도 마커로 인정(마이그레이션 호환).
+// ---------------------------------------------------------------------------
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { db } from "./firebase.js";
 
@@ -12,28 +16,17 @@ export async function sha256(text) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** 저장된 해시 (없으면 null) */
-async function getTeacherHash() {
-  const snap = await getDoc(teacherRef);
-  return snap.exists() ? snap.data().passwordHash || null : null;
-}
-
-/** 비밀번호가 이미 설정돼 있는지 */
+/** 강사 비밀번호가 한 번이라도 설정됐는지 (최초 설정 화면 여부 판단용) */
 export async function isTeacherPasswordSet() {
-  return (await getTeacherHash()) !== null;
+  const snap = await getDoc(teacherRef);
+  if (!snap.exists()) return false;
+  const d = snap.data();
+  return d.setup === true || d.passwordHash != null;
 }
 
-/** 입력 비밀번호 검증 (아직 미설정이면 true) */
-export async function verifyTeacherPassword(plain) {
-  const stored = await getTeacherHash();
-  if (!stored) return true;
-  return (await sha256(plain)) === stored;
-}
-
-/** 비밀번호 설정/변경 */
-export async function setTeacherPassword(plain) {
-  const passwordHash = await sha256(plain);
-  await setDoc(teacherRef, { passwordHash, updatedAt: serverTimestamp() }, { merge: true });
+/** 강사 비밀번호 설정 완료 마커 기록 */
+export async function markTeacherSetup() {
+  await setDoc(teacherRef, { setup: true, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 /** 사이트 제목/부제 실시간 구독. cb({ title, kicker }) */

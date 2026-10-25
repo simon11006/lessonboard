@@ -8,26 +8,26 @@ import {
   setColumnTab,
   setColumnNewCardPosition,
   setColumnGalleryCols,
+  setColumnStats,
   setColumnLock,
   reorderColumns,
   deleteColumn,
 } from "./columns.js";
-import { subscribeTabs, addTab, renameTab, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
-import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo } from "./cards.js";
+import { subscribeTabs, addTab, renameTab, setTabStats, setTabLock, swapTabOrder, deleteTab } from "./tabs.js";
+import { subscribeCards, addCard, updateCard, deleteCard, reorderCards, setCardLock, setCardHidden, copyCardTo, moveCardTo, cardFiles } from "./cards.js";
 import { subscribeBoards, belongsTo, touchBoard, updateBoard, BOARD_TYPES, MAIN_BOARD_ID } from "./boards.js";
 import { renderHome, openBoardSettings, boardLink } from "./home.js";
 import { mountTypedBoard } from "./boardViews.js";
 import { downloadBackup } from "./export.js";
-import { subscribeComments, addComment, deleteComment } from "./comments.js";
+import { subscribeComments, addComment, deleteComment, setCommentCount } from "./comments.js";
 import { fetchLinkPreview, normalizeUrl } from "./linkPreview.js";
 import {
   isTeacher,
   canManage,
-  setTeacher,
-  exitTeacherMode,
   onTeacherModeChange,
 } from "./auth.js";
-import { isTeacherPasswordSet, verifyTeacherPassword, setTeacherPassword, subscribeSiteInfo, setSiteInfo, sha256 } from "./config.js";
+import { teacherSignIn, teacherSignOut, teacherChangePassword } from "./firebase.js";
+import { isTeacherPasswordSet, markTeacherSetup, subscribeSiteInfo, setSiteInfo, sha256 } from "./config.js";
 
 // ---------- 작은 헬퍼들 ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -46,6 +46,30 @@ export function el(tag, opts = {}, children = []) {
     node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
   }
   return node;
+}
+
+// 본문 텍스트 안의 URL을 클릭 가능한 링크(새 창)로 바꿔 parent에 채워 넣는다.
+// 텍스트 노드로 넣으므로 줄바꿈(pre-wrap)·XSS 안전성 모두 유지된다.
+const URL_RE = /(https?:\/\/[^\s<]+)/g;
+function appendLinkified(parent, text) {
+  const str = String(text ?? "");
+  let last = 0, m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(str))) {
+    let url = m[0], trail = "";
+    const tm = url.match(/[)\].,!?;:]+$/); // URL 뒤에 붙은 문장부호는 링크에서 제외
+    if (tm) { trail = tm[0]; url = url.slice(0, -trail.length); }
+    if (m.index > last) parent.appendChild(document.createTextNode(str.slice(last, m.index)));
+    parent.appendChild(el("a", {
+      class: "linkify",
+      text: url,
+      attrs: { href: url, target: "_blank", rel: "noopener noreferrer" },
+      on: { click: (e) => e.stopPropagation() }, // 카드 클릭(상세 열기) 대신 링크만 열기
+    }));
+    if (trail) parent.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < str.length) parent.appendChild(document.createTextNode(str.slice(last)));
 }
 
 function escapeHtml(s) {
@@ -72,6 +96,76 @@ let lastName = localStorage.getItem("vibe_board_name") || "";
 function rememberName(name) {
   lastName = name;
   localStorage.setItem("vibe_board_name", name);
+}
+
+function normalizeParticipantName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ");
+}
+
+function countUniqueParticipants(cards) {
+  const names = new Set();
+  cards.forEach((card) => {
+    const name = normalizeParticipantName(card.authorName);
+    if (name && name !== "익명") names.add(name);
+  });
+  return names.size;
+}
+
+function includesWebappText(value) {
+  return String(value || "").includes("웹앱");
+}
+
+function tabForColumn(column) {
+  return tabsCache.find((tab) => tab.id === column.tabId) || activeTab();
+}
+
+function isWebappPostingContext(column) {
+  const tab = tabForColumn(column);
+  return tab?.type === "webapp" || includesWebappText(tab?.title) || includesWebappText(column?.title);
+}
+
+function authorLabelForColumn(column) {
+  const tab = tabForColumn(column);
+  const titleText = `${tab?.title || ""} ${column?.title || ""}`;
+  if (!isWebappPostingContext(column)) return "이름";
+  return /학생|제작학생/.test(titleText) ? "제작학생" : "작성자";
+}
+
+function webappStatsPatch(cardCount, participantCount) {
+  return {
+    cardCount,
+    webappCount: cardCount,
+    webappsCount: cardCount,
+    appCount: cardCount,
+    participantCount,
+    participants: participantCount,
+    participantStudents: participantCount,
+    studentParticipants: participantCount,
+    studentCount: participantCount,
+    authorCount: participantCount,
+    makerCount: participantCount,
+  };
+}
+
+function statsChanged(target, stats) {
+  return Object.entries(stats).some(([key, value]) => Number(target?.[key] ?? 0) !== value);
+}
+
+async function syncWebappStats(tab, column, cards) {
+  if (!tab || !column) return;
+  const visibleCards = cards.filter((card) => !card.hidden);
+  const stats = webappStatsPatch(visibleCards.length, countUniqueParticipants(visibleCards));
+
+  try {
+    const latestColumn = columnsCache.find((c) => c.id === column.id) || column;
+    const latestTab = tabsCache.find((t) => t.id === tab.id) || tab;
+    const updates = [];
+    if (statsChanged(latestColumn, stats)) updates.push(setColumnStats(column.id, stats));
+    if (statsChanged(latestTab, stats)) updates.push(setTabStats(tab.id, stats));
+    if (updates.length) await Promise.all(updates);
+  } catch (e) {
+    console.warn("웹앱 통계 저장 실패", e);
+  }
 }
 
 // ---------- 토스트 ----------
@@ -569,9 +663,6 @@ function renderBoard() {
   columns.forEach((column, idx) => {
     board.appendChild(buildColumn(column, idx, columns.length));
   });
-  // 그룹형: 그룹이 5개 이하면 화면 너비를 나눠 채우고, 6개부터는 가로 스크롤 (띵커벨 그룹형 방식)
-  board.classList.toggle("board--fill", columns.length <= 5);
-
   if (isTeacher()) attachBoardColumnDnD(board);
 }
 
@@ -593,6 +684,7 @@ function renderWebappTab(tab) {
   attachColumnDnD(gallery, col);
   const unsub = subscribeCards(col.id, (allCards) => {
     const cards = isTeacher() ? allCards : allCards.filter((c) => !c.hidden);
+    syncWebappStats(tab, col, allCards);
     gallery.innerHTML = "";
     if (!cards.length) {
       gallery.appendChild(emptyMsg());
@@ -648,11 +740,16 @@ function buildColumn(column, index, total) {
     countEl,
     permTeacherOnly ? el("span", { class: "column__perm column__perm--teacher", text: "관리자" }) : null,
   ]);
-  const header = el("div", { class: "column__header" }, [
+  // 1줄차: 제목 + 게시글 수 + 글쓰기(오른쪽 끝)
+  const headerMain = el("div", { class: "column__header-main" }, [
     titleWrap,
     el("span", { class: "column__spacer" }),
-    teacher ? el("div", { class: "column__tools" }, tools) : null,
-    headerAddBtn, // 헤더 오른쪽 끝 글쓰기
+    headerAddBtn,
+  ]);
+  // 2줄차(강사): 잠금/설정/삭제 도구 — 글쓰기 아래로 내려 제목이 한 줄로 나오게
+  const header = el("div", { class: "column__header" }, [
+    headerMain,
+    teacher ? el("div", { class: "column__toolbar" }, [el("div", { class: "column__tools" }, tools)]) : null,
   ]);
 
   const body = el("div", { class: "column__body" + (isGallery ? " column__body--gallery" : "") });
@@ -663,9 +760,8 @@ function buildColumn(column, index, total) {
   if (teacher) attachColumnHeaderDrag(header, colEl, column);
 
   if (isGallery) {
-    const cols = column.galleryCols || 3;
-    body.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-    colEl.style.width = `min(90vw, ${cols * 250}px)`;
+    // 갤러리: 칸 수만 지정. 각 카드 너비는 목록 게시판 카드와 동일하게 CSS가 계산
+    colEl.style.setProperty("--gallery-cols", column.galleryCols || 3);
   }
 
   // 게시판 잠금: 비밀번호 입력 전엔 내용 숨김
@@ -694,10 +790,10 @@ function buildColumn(column, index, total) {
 export function buildCard(column, card, cards = [], index = 0) {
   const children = [];
   const isLocked = !!card.lockHash;
+  const isEffectivelyLocked = isLocked && !isTeacher() && !unlockedCards.has(card.id);
 
   if (card.hidden) children.push(el("span", { class: "card__hidden-badge", text: "🙈 참여자에게 숨김" }));
-  // 프롬프트: 태그 + 복사 버튼을 한 줄에 (빈 공간 절약)
-  if (card.isPrompt) {
+  if (card.isPrompt && !isEffectivelyLocked) {
     const tagRow = [el("span", { class: "tag", attrs: { style: "margin:0" }, text: "프롬프트" })];
     if (card.body) {
       tagRow.push(el("button", {
@@ -715,23 +811,36 @@ export function buildCard(column, card, cards = [], index = 0) {
     ]));
   }
 
-  if (card.body)
-    children.push(el("p", { class: "card__body card__body--clamp", text: card.body }));
+  if (!isEffectivelyLocked) {
+    if (card.body) {
+      const bodyP = el("p", { class: "card__body card__body--clamp" });
+      appendLinkified(bodyP, card.body);
+      const moreHint = el("span", { class: "card__more-hint", text: "⋯ 더보기" });
+      const bodyWrap = el("div", { class: "card__body-wrap" }, [bodyP, moreHint]);
+      children.push(bodyWrap);
+      requestAnimationFrame(() => {
+        if (bodyP.scrollHeight - bodyP.clientHeight > 2) bodyWrap.classList.add("card__body-wrap--more");
+      });
+    }
 
-  if (card.fileType === "image" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__media" }, [el("img", { attrs: { src: card.fileUrl, alt: card.fileName || "" } })])
-    );
-  } else if (card.fileType === "pdf" && card.fileUrl) {
-    children.push(
-      el("div", { class: "card__file" }, [
-        el("span", { class: "card__file-icon", text: "📄" }),
-        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-      ])
-    );
+    for (const f of cardFiles(card)) {
+      if (!f.url) continue;
+      if (f.type === "image") {
+        children.push(
+          el("div", { class: "card__media" }, [el("img", { attrs: { src: f.url, alt: f.name || "" } })])
+        );
+      } else {
+        children.push(
+          el("div", { class: "card__file" }, [
+            el("span", { class: "card__file-icon", text: f.type === "pdf" ? "📄" : "📎" }),
+            el("span", { class: "card__file-name", text: f.name || (f.type === "pdf" ? "PDF 교안" : "첨부 파일") }),
+          ])
+        );
+      }
+    }
+
+    if (card.linkUrl) children.push(buildLinkPreview(card));
   }
-
-  if (card.linkUrl) children.push(buildLinkPreview(card));
 
   // footer
   const actions = [];
@@ -748,18 +857,27 @@ export function buildCard(column, card, cards = [], index = 0) {
     actions.push(el("button", { class: "icon-btn icon-btn--danger", text: "🗑", attrs: { title: "삭제" }, on: { click: (e) => { e.stopPropagation(); confirmDeleteCard(column, card); } } }));
   }
 
-  const footer = el("div", { class: "card__footer" }, [
+  const cmtCount = card.commentCount || 0;
+  const meta = el("div", { class: "card__meta" }, [
     el("span", { class: "card__author", text: card.authorName || "익명" }),
     el("span", { class: "card__time", text: fmtTime(card.createdAt) }),
-    el("span", { class: "card__spacer" }),
-    el("span", { class: "card__comments-count", text: "💬" }),
-    el("div", { class: "card__actions" }, actions),
+    el("span", {
+      class: "card__comments-count" + (cmtCount ? " card__comments-count--has" : ""),
+      text: cmtCount ? `💬 ${cmtCount}` : "💬",
+      attrs: { title: cmtCount ? `댓글 ${cmtCount}개` : "댓글" },
+    }),
+  ]);
+  // footer는 자동 줄바꿈: 도구가 한 줄에 안 들어가면 아래로 내려가 카드 밖으로 안 나감
+  const footer = el("div", { class: "card__footer" }, [
+    meta,
+    actions.length ? el("div", { class: "card__actions" }, actions) : null,
   ]);
   children.push(footer);
 
   const cardEl = el("div", {
     class: "card" + (card.hidden ? " card--hidden" : ""),
-    attrs: { draggable: "true", "data-card-id": card.id },
+    // 카드 순서 변경(드래그)은 모든 카드의 order 를 바꾸므로 강사만 가능
+    attrs: { draggable: isTeacher() ? "true" : null, "data-card-id": card.id },
     on: {
       click: () => openCardDetail(column, card),
       dragstart: (e) => {
@@ -782,8 +900,15 @@ function buildLinkPreview(card) {
   const href = normalizeUrl(card.linkUrl);
   const stop = (e) => e.stopPropagation();
   if (p) {
+    // 이미지(사이트 첫 화면 썸네일)가 있으면 첨부파일처럼 보이는 제목/설명/주소 블록 없이
+    // 미리보기 첫 화면만 보여준다.
+    if (p.image) {
+      return el("a", { class: "link-preview link-preview--imageonly", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
+        el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } }),
+      ]);
+    }
+    // 이미지가 없을 때만 텍스트 메타 정보로 폴백.
     return el("a", { class: "link-preview", attrs: { href, target: "_blank", rel: "noopener" }, on: { click: stop } }, [
-      p.image ? el("img", { class: "link-preview__img", attrs: { src: p.image, alt: "", loading: "lazy" } }) : null,
       el("div", { class: "link-preview__meta" }, [
         el("p", { class: "link-preview__title", text: p.title || href }),
         p.description ? el("p", { class: "link-preview__desc", text: p.description }) : null,
@@ -913,6 +1038,12 @@ function selectTab(tab) {
   renderAll();
 }
 
+// 제목/로고 클릭 → 홈(첫 번째 탭)으로 이동
+function goHome() {
+  if (!tabsCache.length) return;
+  selectTab(tabsCache[0]);
+}
+
 // 잠긴 글 열기 — 비밀번호 입력
 function openCardUnlock(column, card) {
   const pw = el("input", { class: "input", attrs: { type: "password", placeholder: "비밀번호" } });
@@ -1010,12 +1141,22 @@ export function openCardDetail(column, card) {
       el("span", { text: card.authorName || "익명" }),
       el("span", { text: "·" }),
       el("span", { text: fmtTime(card.createdAt) }),
+      // 강사·본인: 상세에서 바로 수정
+      canManage(card.authorUid)
+        ? el("button", {
+            class: "btn btn--ghost btn--sm detail__edit",
+            text: "✎ 수정",
+            on: { click: () => { closeModal(); openCardForm(column, card); } },
+          })
+        : null,
     ])
   );
 
   if (card.body) {
     const bodyWrap = el("div");
-    bodyWrap.appendChild(el("div", { class: "detail__body", text: card.body }));
+    const detailBody = el("div", { class: "detail__body" });
+    appendLinkified(detailBody, card.body);
+    bodyWrap.appendChild(detailBody);
     if (card.isPrompt)
       bodyWrap.appendChild(
         el("button", { class: "btn btn--ghost btn--sm", attrs: { style: "margin-top:10px" }, text: "📋 복사", on: { click: () => copyText(card.body) } })
@@ -1023,17 +1164,20 @@ export function openCardDetail(column, card) {
     body.appendChild(bodyWrap);
   }
 
-  if (card.fileType === "image" && card.fileUrl) {
-    body.appendChild(el("img", { class: "detail__image", attrs: { src: card.fileUrl }, on: { click: () => openLightbox(card.fileUrl) } }));
-  } else if (card.fileType === "pdf" && card.fileUrl) {
-    body.appendChild(
-      el("div", { class: "card__file", attrs: { style: "margin-top:12px" } }, [
-        el("span", { class: "card__file-icon", text: "📄" }),
-        el("span", { class: "card__file-name", text: card.fileName || "PDF 교안" }),
-        el("a", { class: "btn btn--ghost btn--sm", attrs: { href: card.fileUrl, target: "_blank", rel: "noopener" }, text: "보기" }),
-        el("a", { class: "btn btn--ghost btn--sm", attrs: { href: card.fileUrl, download: card.fileName || "", target: "_blank", rel: "noopener" }, text: "다운로드" }),
-      ])
-    );
+  for (const f of cardFiles(card)) {
+    if (!f.url) continue;
+    if (f.type === "image") {
+      body.appendChild(el("img", { class: "detail__image", attrs: { src: f.url }, on: { click: () => openLightbox(f.url) } }));
+    } else {
+      body.appendChild(
+        el("div", { class: "card__file", attrs: { style: "margin-top:12px" } }, [
+          el("span", { class: "card__file-icon", text: f.type === "pdf" ? "📄" : "📎" }),
+          el("span", { class: "card__file-name", text: f.name || (f.type === "pdf" ? "PDF 교안" : "첨부 파일") }),
+          el("a", { class: "btn btn--ghost btn--sm", attrs: { href: f.url, target: "_blank", rel: "noopener" }, text: "보기" }),
+          el("a", { class: "btn btn--ghost btn--sm", attrs: { href: f.url, download: f.name || "", target: "_blank", rel: "noopener" }, text: "다운로드" }),
+        ])
+      );
+    }
   }
 
   if (card.linkUrl) body.appendChild(buildLinkPreview(card));
@@ -1076,6 +1220,10 @@ export function openCardDetail(column, card) {
 
   // 댓글 실시간 구독
   const unsub = subscribeComments(column.id, card.id, (comments) => {
+    // 카드의 댓글 수 표시값을 실제 개수로 보정(추가/삭제 시 모두의 footer에 반영)
+    if ((card.commentCount || 0) !== comments.length) {
+      setCommentCount(column.id, card.id, comments.length).catch(() => {});
+    }
     list.innerHTML = "";
     if (!comments.length) {
       list.appendChild(el("div", { class: "comments__empty", text: "첫 댓글을 남겨보세요." }));
@@ -1105,25 +1253,125 @@ export function openCardDetail(column, card) {
 // opts.presetName: 이름 칸 기본값 (출석부형에서 해당 참여자 이름)
 export function openCardForm(column, existing = null, opts = {}) {
   const isEdit = !!existing;
-  let pastedFile = null;       // 클립보드/파일 입력으로 받은 File
-  let removeExistingFile = false;
+  const isWebappPost = isWebappPostingContext(column);
+  const authorLabel = authorLabelForColumn(column);
+  const MAX_FILES = 3;
+  // 첨부 허용 확장자 (이미지는 MIME 으로 별도 허용)
+  const ALLOWED_EXT = ["pdf", "hwp", "hwpx", "txt", "md", "ppt", "pptx", "xls", "xlsx", "doc", "docx", "csv", "zip", "skill"];
+  const newFiles = [];                                   // 새로 추가한 File[]
+  const keptFiles = isEdit ? cardFiles(existing).slice() : []; // 유지 중인 기존 첨부 엔트리[]
+  const removedPaths = [];                               // 삭제 예정 기존 첨부 경로[]
 
-  const nameInput = el("input", { class: "input", attrs: { placeholder: "이름", value: isEdit ? existing.authorName : opts.presetName || lastName } });
+  const nameInput = el("input", {
+    class: "input",
+    attrs: {
+      placeholder: isWebappPost ? `${authorLabel} 이름` : "이름",
+      value: isEdit ? existing.authorName : opts.presetName || lastName,
+      required: isWebappPost,
+    },
+  });
   const titleInput = el("input", { class: "input", attrs: { placeholder: "제목", value: isEdit ? existing.title || "" : "" } });
-  const bodyInput = el("textarea", { class: "textarea", attrs: { placeholder: "내용 또는 프롬프트를 입력하세요" } });
+  const bodyInput = el("textarea", { class: "textarea textarea--lg", attrs: { placeholder: "내용을 입력하세요" } });
   bodyInput.value = isEdit ? existing.body || "" : "";
   const promptCheck = el("input", { attrs: { type: "checkbox", id: "is-prompt" } });
   if (isEdit && existing.isPrompt) promptCheck.checked = true;
   const linkInput = el("input", { class: "input", attrs: { placeholder: "https:// 참고 사이트 · 실습 사이트 주소 (선택)", value: isEdit ? existing.linkUrl || "" : "" } });
   const previewCheck = el("input", { attrs: { type: "checkbox", id: "show-preview" } });
-  if (isEdit && existing.linkPreview) previewCheck.checked = true;
+  // 웹앱 게시용 탭에서는 새 글 작성 시 미리보기 표시를 기본으로 켠다.
+  if (isEdit) {
+    if (existing.linkPreview) previewCheck.checked = true;
+  } else if (isWebappPost) {
+    previewCheck.checked = true;
+  }
 
-  // 파일: 클립보드 붙여넣기 + 파일 선택
-  const fileInput = el("input", { attrs: { type: "file", accept: "image/*,application/pdf", style: "display:none" } });
+  // 강사 전용: 비밀번호 잠금 설정
+  const isAlreadyLocked = isEdit && !!existing.lockHash;
+  const lockInput = isTeacher()
+    ? el("input", { class: "input", attrs: { type: "password", placeholder: isAlreadyLocked ? "새 비밀번호 입력 시 변경, 비우면 기존 잠금 유지" : "비밀번호 (선택, 비우면 잠금 없음)" } })
+    : null;
+  const removeLockCheck = isTeacher() && isAlreadyLocked
+    ? el("input", { attrs: { type: "checkbox", id: "remove-lock" } })
+    : null;
+
+  // 파일: 클립보드 붙여넣기 + 파일 선택 (최대 3개, 이미지/PDF/문서)
+  const fileInput = el("input", {
+    attrs: {
+      type: "file",
+      multiple: true,
+      accept: "image/*,application/pdf,.hwp,.hwpx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.doc,.docx,.csv,.zip,.skill",
+      style: "display:none",
+    },
+  });
   const chosen = el("div", { class: "file-chosen" });
+
+  const totalCount = () => keptFiles.length + newFiles.length;
+
+  function isAllowedFile(file) {
+    if ((file.type || "").startsWith("image/")) return true;
+    const ext = (file.name?.split(".").pop() || "").toLowerCase();
+    return ext === "pdf" || ALLOWED_EXT.includes(ext);
+  }
+
+  // 첨부 목록(기존 + 신규)을 다시 그린다
+  function renderChosen() {
+    chosen.innerHTML = "";
+    keptFiles.forEach((f, i) => {
+      chosen.appendChild(fileChip(f.name, f.type, f.url, () => {
+        if (f.path) removedPaths.push(f.path);
+        keptFiles.splice(i, 1);
+        renderChosen();
+      }));
+    });
+    newFiles.forEach((file, i) => {
+      const isImg = (file.type || "").startsWith("image/");
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      const url = isImg ? URL.createObjectURL(file) : null;
+      chosen.appendChild(fileChip(file.name, isImg ? "image" : isPdf ? "pdf" : "doc", url, () => {
+        newFiles.splice(i, 1);
+        renderChosen();
+      }));
+    });
+  }
+
+  function fileChip(name, type, url, onRemove) {
+    if (type === "image" && url) {
+      return el("div", { class: "paste-preview" }, [
+        el("img", { attrs: { src: url } }),
+        el("button", { class: "remove-file", text: "✕", attrs: { type: "button" }, on: { click: onRemove } }),
+      ]);
+    }
+    return el("span", { class: "file-chosen__item" }, [
+      el("span", { text: `${type === "pdf" ? "📄" : "📎"} ${name || "첨부 파일"}` }),
+      el("button", { class: "btn btn--ghost btn--sm", text: "제거", attrs: { type: "button" }, on: { click: onRemove } }),
+    ]);
+  }
+
+  // 파일들을 신규 첨부로 추가 (개수/형식/용량 검증)
+  function addFiles(fileList) {
+    for (const file of fileList) {
+      if (!file) continue;
+      if (totalCount() >= MAX_FILES) {
+        showToast(`첨부는 최대 ${MAX_FILES}개까지 가능해요`);
+        break;
+      }
+      if (!isAllowedFile(file)) {
+        showToast("이미지·PDF·문서(hwp/hwpx·txt·md·ppt·excel·doc·zip 등)만 첨부할 수 있어요");
+        continue;
+      }
+      // 이미지는 업로드 전 자동 압축되므로 비이미지에만 20MB 제한 안내
+      const isImg = (file.type || "").startsWith("image/");
+      if (!isImg && file.size > 20 * 1024 * 1024) {
+        showToast(`${file.name}: 파일은 20MB까지 첨부할 수 있어요`);
+        continue;
+      }
+      newFiles.push(file);
+    }
+    renderChosen();
+  }
+
   const pasteZone = el("div", {
     class: "paste-zone",
-    text: "파일을 여기로 끌어다 놓거나, 이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 선택하세요 (PDF·이미지)",
+    text: "파일을 여기로 끌어다 놓거나, 이미지를 붙여넣기(Ctrl+V) 하거나, 클릭해 선택하세요 (이미지·PDF·문서, 최대 3개)",
     on: {
       click: () => fileInput.click(),
       dragover: (e) => {
@@ -1134,8 +1382,8 @@ export function openCardForm(column, existing = null, opts = {}) {
       drop: (e) => {
         e.preventDefault();
         pasteZone.classList.remove("paste-zone--active");
-        const file = e.dataTransfer?.files?.[0];
-        if (file) setFile(file);
+        const files = e.dataTransfer?.files;
+        if (files?.length) addFiles(files);
       },
     },
   });
@@ -1144,61 +1392,33 @@ export function openCardForm(column, existing = null, opts = {}) {
   const onPaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
-      setFile(item.getAsFile());
+      addFiles([item.getAsFile()]);
       pasteZone.classList.add("paste-zone--active");
       e.preventDefault();
     }
   };
   document.addEventListener("paste", onPaste);
 
-  function setFile(file) {
-    if (file) {
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-      const isImage = file.type.startsWith("image/");
-      // 드래그&드롭은 형식 제한을 우회하므로 여기서 직접 검증
-      if (!isPdf && !isImage) {
-        showToast("이미지 또는 PDF만 첨부할 수 있어요");
-        return;
-      }
-      // PDF 는 압축 없이 그대로 올라가므로 20MB 제한을 미리 안내. (이미지는 업로드 전 자동 압축)
-      if (isPdf && file.size > 20 * 1024 * 1024) {
-        showToast("PDF는 20MB까지 첨부할 수 있어요");
-        return;
-      }
-    }
-    pastedFile = file;
-    removeExistingFile = false;
-    chosen.innerHTML = "";
-    if (!file) return;
-    if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      const wrap = el("div", { class: "paste-preview" }, [
-        el("img", { attrs: { src: url } }),
-        el("button", { class: "remove-file", text: "✕", attrs: { type: "button" }, on: { click: () => { pastedFile = null; chosen.innerHTML = ""; } } }),
-      ]);
-      chosen.appendChild(wrap);
-    } else {
-      chosen.appendChild(el("span", { text: `📄 ${file.name}` }));
-      chosen.appendChild(el("button", { class: "btn btn--ghost btn--sm", text: "제거", attrs: { type: "button" }, on: { click: () => { pastedFile = null; chosen.innerHTML = ""; } } }));
-    }
-  }
-  fileInput.addEventListener("change", () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files?.length) addFiles(fileInput.files);
+    fileInput.value = ""; // 같은 파일 다시 선택 가능하도록 초기화
+  });
 
   // 기존 첨부 표시 (수정 모드)
-  if (isEdit && existing.fileUrl) {
-    const existingInfo = el("div", { class: "file-chosen" }, [
-      el("span", { text: existing.fileType === "pdf" ? `📄 ${existing.fileName || "PDF"}` : "🖼 기존 이미지" }),
-      el("button", { class: "btn btn--ghost btn--sm", text: "첨부 제거", attrs: { type: "button" }, on: { click: (e) => { removeExistingFile = true; e.target.closest(".file-chosen").remove(); } } }),
-    ]);
-    chosen.appendChild(existingInfo);
-  }
+  renderChosen();
 
   const body = el("div", { class: "modal__body" }, [
-    el("div", { class: "field" }, [el("label", { text: "이름" }), nameInput]),
+    el("div", { class: "field" }, [
+      el("label", {}, [
+        authorLabel,
+        isWebappPost ? el("span", { class: "required-mark", text: "*" }) : null,
+      ]),
+      nameInput,
+    ]),
     el("div", { class: "field" }, [el("label", { text: "제목" }), titleInput]),
     el("div", { class: "field" }, [el("label", { text: "내용" }), bodyInput]),
     el("div", { class: "field" }, [
-      el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "프롬프트로 표시 (복사 버튼 추가)" })]),
+      el("div", { class: "checkbox-row" }, [promptCheck, el("label", { attrs: { for: "is-prompt" }, text: "복사버튼 추가" })]),
     ]),
     el("div", { class: "field" }, [
       el("label", { text: "링크" }),
@@ -1206,7 +1426,15 @@ export function openCardForm(column, existing = null, opts = {}) {
       el("div", { class: "checkbox-row", attrs: { style: "margin-top:8px" } }, [previewCheck, el("label", { attrs: { for: "show-preview" }, text: "미리보기 표시 (체크 안 하면 바로가기 주소만)" })]),
       el("p", { class: "hint", text: "미리보기를 켜면 사이트 첫 화면 썸네일이 생성됩니다 (실패 시 단순 링크)." }),
     ]),
-    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (PDF 교안 · 스크린샷, 최대 20MB)" }), pasteZone, fileInput, chosen]),
+    el("div", { class: "field" }, [el("label", { text: "파일 첨부 (이미지·PDF·문서, 최대 3개 · 각 20MB)" }), pasteZone, fileInput, chosen]),
+    lockInput ? el("div", { class: "field" }, [
+      el("label", { text: isAlreadyLocked ? "🔒 비밀번호 잠금 (설정됨)" : "🔒 비밀번호 잠금" }),
+      lockInput,
+      removeLockCheck ? el("div", { class: "checkbox-row", attrs: { style: "margin-top:8px" } }, [
+        removeLockCheck,
+        el("label", { attrs: { for: "remove-lock" }, text: "잠금 해제" }),
+      ]) : null,
+    ]) : null,
   ]);
 
   const saveBtn = el("button", { class: "btn btn--primary", text: isEdit ? "수정" : "등록" });
@@ -1216,8 +1444,14 @@ export function openCardForm(column, existing = null, opts = {}) {
   ]);
 
   saveBtn.addEventListener("click", async () => {
-    const name = nameInput.value.trim() || "익명";
-    const hasContent = titleInput.value.trim() || bodyInput.value.trim() || linkInput.value.trim() || pastedFile || (isEdit && existing.fileUrl && !removeExistingFile);
+    const rawName = nameInput.value.trim();
+    if (isWebappPost && !rawName) {
+      showToast(`${authorLabel} 이름을 입력해주세요`);
+      nameInput.focus();
+      return;
+    }
+    const name = rawName || "익명";
+    const hasContent = titleInput.value.trim() || bodyInput.value.trim() || linkInput.value.trim() || newFiles.length || keptFiles.length;
     if (!hasContent) {
       showToast("제목·내용·링크·파일 중 하나는 입력해주세요");
       return;
@@ -1242,19 +1476,35 @@ export function openCardForm(column, existing = null, opts = {}) {
         linkUrl: linkVal,
         linkPreview,
         authorName: name,
-        file: pastedFile || undefined,
+        files: newFiles,
       };
 
+      let savedId;
       if (isEdit) {
-        payload.removeFile = removeExistingFile;
+        payload.keepFiles = keptFiles;
+        payload.removedPaths = removedPaths;
         await updateCard(column.id, existing.id, payload);
+        savedId = existing.id;
         showToast("수정했습니다");
       } else {
         payload.newCardPosition = column.newCardPosition; // 칼럼 설정에 따라 위/아래 삽입
         payload.extra = opts.extra;
-        await addCard(column.id, payload);
+        const ref = await addCard(column.id, payload);
+        savedId = ref.id;
         showToast("등록했습니다");
       }
+
+      // 강사 잠금 처리
+      if (lockInput) {
+        if (removeLockCheck?.checked) {
+          await setCardLock(column.id, savedId, null);
+          unlockedCards.delete(savedId);
+        } else if (lockInput.value.trim()) {
+          await setCardLock(column.id, savedId, await sha256(lockInput.value.trim()));
+          unlockedCards.delete(savedId);
+        }
+      }
+
       touchBoard(column.boardId || MAIN_BOARD_ID); // 홈의 '최근 활동' 정렬용
       closeModal();
     } catch (e) {
@@ -1264,7 +1514,7 @@ export function openCardForm(column, existing = null, opts = {}) {
     }
   });
 
-  const overlay = openModal([modalHeader(isEdit ? "글 수정" : "글쓰기"), body, footer]);
+  const overlay = openModal([modalHeader(isEdit ? "글 수정" : "글쓰기"), body, footer], { wide: true });
   overlay._cleanup = () => document.removeEventListener("paste", onPaste);
 }
 
@@ -1575,33 +1825,26 @@ async function openTeacherLogin(onSuccess) {
     return;
   }
 
-  // 최초 1회: 비밀번호 없이 입장 → 곧바로 비밀번호 설정 요구
+  // 최초 1회: 비밀번호 설정(= 강사 계정 생성)
   if (!hasPassword) {
-    setTeacher(true);
-    showToast("관리자 모드로 입장했습니다. 비밀번호를 설정해주세요.");
     openSetPasswordModal({ firstTime: true });
-    if (onSuccess) onSuccess();
     return;
   }
 
-  // 이후: 비밀번호 입력
+  // 이후: 비밀번호 입력 → 관리자(강사) 계정으로 로그인 (관리자 여부는 인증 리스너가 반영)
   const pwInput = el("input", { class: "input", attrs: { type: "password", placeholder: "관리자 비밀번호" } });
   const okBtn = el("button", { class: "btn btn--primary", text: "확인" });
   const tryLogin = async () => {
     okBtn.disabled = true;
     try {
-      if (await verifyTeacherPassword(pwInput.value)) {
-        setTeacher(true);
-        showToast("관리자 모드로 전환했습니다");
-        closeModal();
-        if (onSuccess) onSuccess();
-      } else {
-        showToast("비밀번호가 올바르지 않습니다");
-        pwInput.value = "";
-        pwInput.focus();
-      }
+      await teacherSignIn(pwInput.value);
+      showToast("관리자 모드로 전환했습니다");
+      closeModal();
+      if (onSuccess) onSuccess(); // 예: 새 보드 만들기 창 이어서 열기
     } catch (e) {
-      showToast("확인 실패: " + e.message);
+      showToast(e.code === "wrong-password" ? "비밀번호가 올바르지 않습니다" : "확인 실패: " + e.message);
+      pwInput.value = "";
+      pwInput.focus();
     } finally {
       okBtn.disabled = false;
     }
@@ -1627,13 +1870,19 @@ function openSetPasswordModal({ firstTime = false } = {}) {
   const save = async () => {
     const a = pw1.value.trim();
     const b = pw2.value.trim();
-    if (a.length < 4) return showToast("비밀번호는 4자 이상으로 정해주세요");
+    if (a.length < 6) return showToast("비밀번호는 6자 이상으로 정해주세요");
     if (a !== b) return showToast("두 비밀번호가 일치하지 않습니다");
     saveBtn.disabled = true;
     saveBtn.textContent = "저장 중…";
     try {
-      await setTeacherPassword(a);
-      showToast("비밀번호를 저장했습니다");
+      if (firstTime) {
+        await teacherSignIn(a);     // 강사 계정 생성 + 로그인
+        await markTeacherSetup();   // 다음부턴 '로그인' 화면을 보여주도록 마커 기록
+        showToast("강사 비밀번호를 설정했습니다");
+      } else {
+        await teacherChangePassword(a);
+        showToast("비밀번호를 변경했습니다");
+      }
       closeModal();
     } catch (e) {
       showToast("저장 실패: " + e.message);
@@ -1651,7 +1900,7 @@ function openSetPasswordModal({ firstTime = false } = {}) {
     modalHeader(firstTime ? "관리자 비밀번호 설정" : "관리자 비밀번호 변경"),
     el("div", { class: "modal__body" }, [
       firstTime
-        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호는 다음부터 관리자 모드 입장에 사용됩니다. Firestore에 안전하게(해시) 저장돼요." })
+        ? el("p", { class: "hint", attrs: { style: "margin:0 0 14px" }, text: "이 비밀번호로 관리자 전용 계정이 만들어지고, 다음부터 관리자 모드 입장에 사용됩니다. (6자 이상)" })
         : null,
       el("div", { class: "field" }, [el("label", { text: "새 비밀번호" }), pw1]),
       el("div", { class: "field" }, [el("label", { text: "비밀번호 확인" }), pw2]),
@@ -1725,6 +1974,11 @@ export function initHeader() {
   });
   editTitleBtn.addEventListener("click", openEditTitleModal);
 
+  // 보드 제목을 누르면 그 보드의 첫 탭으로 돌아간다 (그룹형).
+  titleEl.classList.add("is-home-link");
+  titleEl.setAttribute("title", "첫 탭으로");
+  titleEl.addEventListener("click", goHome);
+
   // 보드용 버튼: 글쓰기(격자·타일·스트림·지도형), 링크 복사, 보드 설정
   $("#board-write-btn").addEventListener("click", () => typedView?.ctrl.startWrite());
   $("#copy-link-btn").addEventListener("click", async () => {
@@ -1766,8 +2020,11 @@ export function initHeader() {
 
   modeBtn.addEventListener("click", () => {
     if (isTeacher()) {
-      exitTeacherMode();
-      showToast("관리자 모드를 종료했습니다");
+      modeBtn.disabled = true;
+      teacherSignOut()
+        .then(() => showToast("관리자 모드를 종료했습니다"))
+        .catch((e) => showToast("종료 실패: " + e.message))
+        .finally(() => { modeBtn.disabled = false; });
     } else {
       openTeacherLogin();
     }

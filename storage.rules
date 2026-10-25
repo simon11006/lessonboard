@@ -1,8 +1,10 @@
 rules_version = '2';
 
 // 바이브코딩 연수 게시판 Storage 보안 규칙
-//  - 읽기: 공개 (카드의 이미지/PDF 표시용)
-//  - 쓰기: 익명 인증 사용자, 20MB 이하, 이미지 또는 PDF 만
+//  - 읽기: 공개 (카드의 이미지/PDF/문서 표시용)
+//  - 쓰기: 익명 인증 사용자, 20MB 이하, 이미지·PDF·문서(hwp/hwpx·txt·ppt·excel·doc 등)
+//    문서 형식은 브라우저가 contentType 을 빈/octet-stream 으로 올리는 경우가 많아
+//    image/* · text/* · application/* 를 폭넓게 허용한다 (형식 제한은 클라이언트에서 검증).
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{fileName} {
@@ -10,7 +12,8 @@ service firebase.storage {
       allow write: if request.auth != null
         && request.resource.size < 20 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*')
-            || request.resource.contentType == 'application/pdf');
+            || request.resource.contentType.matches('text/.*')
+            || request.resource.contentType.matches('application/.*'));
       allow delete: if request.auth != null;
     }
   }
